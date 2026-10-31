@@ -50,6 +50,19 @@ export interface Binding {
      *  relative imports so it can be looked up in the project's per-file
      *  results — see the ImportDeclaration handling in engine.ts. */
     source?: string;
+    /** For `kind: "import"` only: the name as the *source module* knows it,
+     *  which is not always the local name. `import { a as b }` binds `b` here
+     *  but must be looked up as `a` in the module it came from, and before this
+     *  existed the linker searched the source file for `b` and found nothing —
+     *  so every renaming import silently failed to link. `"default"` for
+     *  `import x from`, `"*"` for `import * as ns from`. */
+    imported?: string;
+    /** For `kind: "import"` only: this specifier is `import type` / `{ type X }`.
+     *  Type-only imports carry no value at runtime, so they can never produce a
+     *  data-flow edge; flagged rather than dropped so the import statistics can
+     *  exclude them and report a linkage rate over the specifiers that could
+     *  actually have linked. */
+    typeOnly?: boolean;
     /** The identifier's text, e.g. `"foo"`. */
     name: string;
     /** 1-based source line of the declaration (from `loc`, not `range`). */
@@ -143,10 +156,64 @@ export type Scope = {
     savedFunction: Binding | null;
 }
 
+/**
+ * One `export ... from` statement — a name this module publishes that it does
+ * not declare (gap 21).
+ *
+ * `export { x } from "./y"` reads like `import { x } from "./y"` followed by
+ * `export { x }`, but it is not: it creates **no local binding at all**. The
+ * name is a forwarding address, and referencing it inside the re-exporting
+ * module is a ReferenceError. That is why the linker's "find a declaration
+ * called `x` in the source file" step could never work through a barrel — the
+ * language guarantees there is nothing there to find. The chain has to be
+ * recorded here so `analyse` can walk to the module that really declares it.
+ */
+export interface ReExport {
+    /** The name this module publishes. `undefined` for a bare `export * from`,
+     *  which republishes the source's names unchanged and so names nothing. */
+    exported?: string;
+    /** The name to ask the source module for. Note the direction: on a
+     *  re-export specifier the parser's `local` is the name in the *source*
+     *  file and `exported` is what this file publishes — the opposite way round
+     *  from an import specifier, where `local` is the name in the importing
+     *  file. `undefined` for `export * from`. */
+    local?: string;
+    /** The module specifier, rewritten to an absolute path when it points
+     *  inside the project — same treatment, and same resolver, as an import's
+     *  `source`. */
+    source: string;
+    /** `export * from "./y"`. Resolution through one of these is a search
+     *  rather than a lookup: the star names nothing, so a name that isn't found
+     *  locally has to be tried against every star source in turn. */
+    star?: boolean;
+    /** For `export * as ns from "./y"` — the namespace this file publishes.
+     *  Recorded so it is not mistaken for a bare star: a namespace re-export
+     *  does *not* republish the source's names at the top level, so searching
+     *  through it for an arbitrary name would invent a link that isn't there. */
+    namespace?: string;
+    /** `export type { X } from` — no value crosses, same reasoning as
+     *  `Binding.typeOnly`. */
+    typeOnly?: boolean;
+}
+
 /** The output of walking one file: every declaration found in it, each
  *  with its uses already attached. Produced by `collectVariables`. */
 export interface Results {
     declarations: Binding[];
+    /** Every name this module publishes from its own declarations, mapped to
+     *  the local name that backs it — `export { beta as b }` records `b -> beta`,
+     *  and the common `export const alpha` records `alpha -> alpha`. `default`
+     *  is a key like any other, pointing at whatever `export default` named.
+     *
+     *  Needed because "is this name exported?" and "is this name declared?" are
+     *  different questions, and only the first one is the right one to ask when
+     *  following a chain into a module. The linker still falls back to matching
+     *  any declaration by name, so this table only ever adds links. */
+    exports: Map<string, string>;
+    /** Every `export ... from` in the file, in source order — the forwarding
+     *  table a barrel file consists of. Empty for the overwhelming majority of
+     *  files, which declare what they export. */
+    reExports: ReExport[];
     /** How the walk's identifier lookups ended up. Kept per file so the
      *  resolution rate is a number the tests and `analyse` can read directly,
      *  rather than something only reconstructable through the trace hook.

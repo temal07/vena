@@ -24,11 +24,13 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Reassignment (`x = foo()`)                   | ✅ Done — not destructuring, see gap 5     |
 | Method-call resolution                       | ⚠️ Name-only — 0.4% ambiguous live, gap 1  |
 | Resolution reporting (`Results.lookups`)     | ⚠️ Counts, but globals list is thin        |
-| Cross-file linking (imports → declarations)  | ✅ 1 of 1,505 unlinked on Hono, and counted |
+| Cross-file linking (imports → declarations)  | ⚠️ 80% of value imports on Hono, **44%** on a monorepo — gaps 21, 22 |
 | Runs on an arbitrary repo                    | ✅ Survives bad files, reports them        |
+| Runs on a *large* repo                       | ✅ 8,144 files, 0 parse failures, 23 s — but 1.2 GB graph |
+| Answer size at scale                         | ✅ p90 = 10 nodes, flat from 309 to 8,144 files |
 | JSX / `.tsx` support                         | ✅ Done — `.ts` stays non-JSX, see gap 13  |
 | Automated tests                              | ⏳ Partial — 105 tests across 2 files      |
-| Answers real questions end to end            | ⚠️ 15/20 correct, **0 wrong proven** — BENCHMARK.md |
+| Answers real questions end to end            | ⚠️ 15/20 on Hono, **0 wrong** — degrades on modular repos, BENCHMARK.md |
 | MCP wrapper                                  | ⏳ Planned — see item 3 in Next up         |
 
 
@@ -606,6 +608,18 @@ export const getFilePathWithoutDefaultDocument = (options) => { … }
 
 **Size: at most 148 of the 719 in gap 18 (20.6%), and that is a loose upper bound.** It counts any unresolved callee whose name the same file also declares, which sweeps in coincidental collisions — a local named `map` in a file that calls `arr.map`. The clean cases are `getFilePathWithoutDefaultDocument`, `classNameSlug`, `getContent`, `getCSPDirectives`, `jsxFn`. The true number is smaller and unmeasured.
 
+**Measured directly on three repos (BENCHMARK.md #2, August 19 2026) — module-level `const f = () => {}` whose name is called earlier in the same file:**
+
+| repo | arrow call sites | called before declared | share | files affected |
+| --- | --- | --- | --- | --- |
+| hono `src` | 381 | 99 | **26%** | 35 |
+| excalidraw `packages` | 717 | 115 | **16%** | 31 |
+| vena `src` | 3 | 0 | **0%** | 0 |
+
+Regex-derived, so approximate in both directions; it is here to rank the cause, not to claim a precision. The 0% row is the one that matters: **this repo has three arrow-function call sites in total and declares before use everywhere, so it had no chance of surfacing this gap from the inside.** Same lesson as gaps 13/14 in case study #1, arriving a third time.
+
+Live example on excalidraw: `avoidRectangularCorner` is called at `binding.ts:1500` and declared at `binding.ts:1616`. `vena-trace element/src/binding.ts:1618 --back` returns the header line and nothing else; `grep` finds the call site in 0.03 s.
+
 Accounts for Q5, Q14 and Q18 in BENCHMARK.md. Likely fix: a hoisting pre-pass collecting module-level declarations before the walk, or deferring callee resolution the way gap 2 defers uses.
 
 ---
@@ -624,17 +638,92 @@ The constructor argument demonstrably reaches `getResponse`, and the graph says 
 
 Only one of twenty benchmark questions, so it ranks below gaps 18 and 19. But it is a bigger design question than either: fields need somewhere to live as nodes, and `obj.x` across two unrelated objects is the same name-collision problem gap 1 has with methods. Worth deciding deliberately rather than drifting into.
 
+**"One of twenty" was a hono-shaped number.** BENCHMARK.md #2 counted `this.x =` assignments across three repos:
+
+| repo | `this.x =` assignments | class declarations |
+| --- | --- | --- |
+| hono `src` | 59 | 54 |
+| excalidraw `packages` | 249 | 77 |
+| vscode `src` | **25,445** | **10,764** |
+
+Every one of those 25,445 is a missing edge. Tracing `path` in `vs/base/common/uri.ts` returns four within-file edges and stops, because the value goes into `this.path` and there is no node for it. On a DI/class-structured codebase this is not an item ranked below gaps 18 and 19 — it is the difference between a graph and no graph. The design question is unchanged; what changed is that the answer now decides whether whole categories of repo are in scope at all.
+
+---
+
+### 21. Re-export chains are not followed
+
+`analyse.ts:244` links an import by looking for a **declaration** in the resolved file whose name matches the specifier. A barrel file has no such declaration — it has a re-export:
+
+```ts
+// packages/element/src/index.ts
+export * from "./cropElement";          // vena: no declaration named `cropElement` here
+// packages/excalidraw/components/App.tsx
+import { cropElement } from "@excalidraw/element";   // → resolves to index.ts → finds nothing → dropped
+```
+
+`export { x } from "./y"` fails the same way, and neither is counted anywhere: `unlinkedImports` only fires when no *file* resolves, and here the file resolves fine.
+
+**Size: 2,459 of excalidraw's 5,892 value import specifiers — 42%.** That is the largest single measured hole in the project. On hono it is 139 of 963 (14%), which is why case study #1 never ranked it — hono re-exports far less, and the note there to try "a repo with `export *`" was the right instinct.
+
+Likely fix: when the resolved file has no matching declaration, check its re-exports and recurse, with a visited set for cycles. `export * from` needs the target's exported names; `export { x } from` and `export { x as y } from` need the rename handled.
+
+**Ship with gap 22.** Alone, on a monorepo, this leaves the barrel unreachable behind an unresolved alias.
+
+---
+
+### 22. tsconfig `paths` aliases are treated as third-party — and not counted
+
+`engine.ts:284` only rewrites an import source to an absolute path when it starts with `"."`. A tsconfig path alias does not, so it falls through to `resolveImport`, misses, and is skipped as an external package.
+
+```jsonc
+// excalidraw tsconfig.json
+"paths": { "@excalidraw/element": ["./packages/element/src/index.ts"], "@excalidraw/element/*": ["./packages/element/src/*"] }
+```
+
+**1,209 of excalidraw's ~3,700 in-project import statements are `@excalidraw/*`.**
+
+The second half is worse than the first. `analyse.ts:235` guards the `unlinkedImports` counter on `isAbsolute(binding.source)` — and an unrewritten alias is not absolute, so it is not even counted. The run reports 234 unlinked while roughly 1,200 are missing. **The one metric whose job is to make missing edges visible is blind to the largest source of them**, which is a sharper version of the same failure gap 7 had before it was measured. Whatever fix lands here, the counter needs to move to "any specifier that did not link", regardless of how its source looked.
+
+Fix: read `compilerOptions.paths` and `baseUrl` from the nearest tsconfig at analysis start, and apply the mapping in the same place `"."` is handled today. Mechanical.
+
+**On its own it is worth 2.5%** — patching the alias map by hand on excalidraw took the graph from 23,250 to 23,829 edges, because the aliases point at barrels and gap 21 then drops them. The two gaps are one fix in two parts.
+
 ---
 
 ## Benchmark
 
+### #1 — twenty questions over Hono
+
 `src/mds/BENCHMARK.md`, August 17 2026 — twenty data-flow questions over Hono, ground truth hand-derived from source *before* any query was run.
 
-**10 ✅ / 4 ⚠️ / 6 ❌ — and 0 wrong.** No answer contained an edge that isn't real; all three negative controls held; every ⚠️ is a strict subset of the truth. Every failure is a missing edge.
+**Run 1: 11 ✅ / 3 ⚠️ / 6 ❌. Run 2, after gap 18: 15 ✅ / 3 ⚠️ / 2 ❌ — and 0 wrong in both.** No answer contained an edge that isn't real; all three negative controls held; every ⚠️ is a strict subset of the truth. Every failure is a missing edge.
 
 Nine of the ten imperfect answers attribute to three causes — gap 18 (five), gap 19 (three), gap 20 (one). None of them is visible in any internal metric: `unlinkedImports` is 0, `skipped` is 0, resolution is 91.2%.
 
 **Method note worth keeping.** This is the same discipline as reading unresolved names by rank, moved one level up: ask questions the engine wasn't built around, derive the answers by hand first, and let the failures rank themselves. It took about two hours and reordered the whole backlog.
+
+### #2 — does it hold up as repos get larger?
+
+August 19 2026 — four repos, 13 → 8,144 files (vena, hono, excalidraw, vscode), plus head-to-head against `grep`.
+
+| | |
+| --- | --- |
+| Runs on a large repo at all | ✅ 8,144 files, 0 parse failures, 23 s |
+| Answer size stays bounded | ✅ forward reachability p90 = 10 nodes, **flat across all four** |
+| Cross-file linkage holds up | ❌ 80% of value imports on hono → **44%** on excalidraw |
+| Beats grep on cross-file provenance | ✅ 23 of 25 call sites *with the bound variable named*, 0.2 s |
+| Beats grep within a file | ❌ reading the function is cheaper and more complete |
+| Still no wrong edges | ✅ four repos, every failure was silence |
+
+Two results reordered the backlog again:
+
+**The bounded-answer property survives scale, and it wasn't designed for.** vscode's graph has one weakly-connected component holding 40% of its 544,862 nodes, which looks like a hairball — but flow *direction* cuts it into small pieces, and a trace returns tens of nodes at 8,144 files exactly as it does at 309. This is what makes the tool usable by an agent at all.
+
+**Linking is now the binding constraint, not coverage.** Benchmark #1 concluded the reverse, and that was right for one flat 309-file repo. Gaps 21 and 22 halve cross-file linkage on a repo with aliases and barrels — and both get *more* common as a codebase grows, which inverts the premise: the graph is weakest exactly where "I can no longer hold this in my head" is most true.
+
+The uncomfortable result kept on purpose: **grep wins within a file.** Those are the engine's most reliable edges and the ones an agent needs least. The 25–33% that cross a file boundary are the whole value proposition.
+
+Priorities out of it: gap 21, then 22 (together, not separately), then gap 19, then MCP over an index rather than a 1.2 GB JSON reload per query, then decide gap 20.
 
 ---
 
@@ -653,6 +742,21 @@ Nine of the ten imperfect answers attribute to three causes — gap 18 (five), g
 **One second for 310 files kills the hardest MCP design problem before it arrives.** No incremental analysis, no watch mode, no clever invalidation — check mtimes, rebuild if anything moved, cache under `.vena/`. Assume this holds to a few thousand files and re-measure past that.
 
 The 21.8MB figure is the other half of the argument: the graph can never be handed over whole. The surface has to be bounded traversals, which `query.ts` now is.
+
+### Re-measured past a few thousand files — August 19 2026
+
+That last line asked for it, so BENCHMARK.md #2 did it:
+
+| repo | files | `analyse()` | graph.json | peak RSS |
+| --- | --- | --- | --- | --- |
+| excalidraw `packages` | 572 | 1.3s | 63MB | 0.8GB |
+| vscode `src` | 8,144 | **23s** | **1.21GB** | **5.3GB** |
+
+**The first half of the bet held; the second half did not.** 23 seconds for 8,144 files with zero parse failures means rebuild-on-mtime-change is still the right call and incremental analysis is still not needed.
+
+But *"cache under `.vena/`"* assumed the cache is a file you read back. At 1.21GB it is not. `query.ts` re-parses the whole graph per invocation — **2.7s and 4.1GB RSS for one trace on vscode**, to produce an answer of a few hundred bytes. Ten traces in an agent loop is 27s and ~40GB of allocation churn.
+
+So the MCP item is no longer "wrap `query.ts`". It is **an on-disk index keyed by node id** — edges queryable without materialising the graph (`bun:sqlite` is already the house tool) — with `resolveTarget`/`traverse` running against that. The bounded-traversal surface argued for above is unchanged and is still right; what changed is that it now has to sit on storage rather than on `JSON.parse`.
 
 ### What blocks a v0
 
@@ -706,20 +810,21 @@ So the hypothesis under test is *"fewer tool calls for the same answer"*, not *"
 
 ## Next up
 
-**Reordered August 17 2026 by BENCHMARK.md.** Gap 7 came off this list on August 16, and gap 16 the same day. The benchmark then reordered everything below it: the top two items are now the two causes that account for eight of the ten imperfect answers, and neither was visible in any internal metric.
+**Reordered August 19 2026 by BENCHMARK.md #2.** The previous ordering was ranked by "which of twenty questions does it get wrong" on one 309-file repo. Scaling to four repos put two gaps at the top that did not exist on the list a day ago, and both are *linking*, not analysis.
 
-The lesson worth carrying: this list was previously ranked by *resolution rate*, which is a proxy. Ranking by "which questions does it get wrong" moved call-site resolution from first to third and promoted a gap that wasn't filed at all.
+The lesson worth carrying, third version: ranked by resolution rate → call-site resolution was first. Ranked by benchmark failures → it fell to third. Ranked across repo *shapes* → the top two items are gaps 21 and 22, which cost nothing at all on hono and half the cross-file graph on a monorepo. **Each reranking came from widening what was being measured, never from measuring the same thing harder.**
 
 Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20.
 
-1. **Gap 19 — callee lookup can't see later declarations.** Now the whole of the remaining benchmark shortfall except one question: Q5, Q7, Q14 (⚠️) and Q18 (❌). A hoisting pre-pass over module-level declarations, or defer callee resolution the way gap 2 defers uses. Only adds correct edges, so unlike gap 18 there is no soundness question to settle first. BENCHMARK.md predicts it moves four answers — worth checking that prediction against the result, since a prediction that misses says the model of the gap is wrong.
-2. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
-3. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 4+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them.
-4. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
-5. **Gap 20 — object field flow.** One benchmark failure, but the largest design question of the three new gaps: fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods.
-6. **Cross-file test harness** — mostly done as of gap 7. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests; gap 7 added `fixtureDir` fixtures with real directory structure and the first assertions on cross-file edges. What's left is breadth: re-export chains, default exports, and `export * from`, none of which is exercised.
-7. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
-8. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
+1. **Gaps 21 + 22 — re-exports and tsconfig `paths`, as one change.** 2,459 and ~1,200 import specifiers on excalidraw; 44% of value imports link where hono gets 80%. Ship together: aliases alone bought 2.5% when measured, because they land on barrels. Fixing these is what makes the cross-file edges — the only ones worth having, per #2's grep head-to-head — actually exist on a repo with module boundaries. Gap 22 also has to move the `unlinkedImports` counter off `isAbsolute`, so the metric stops being blind to its own largest miss.
+2. **Gap 19 — callee lookup can't see later declarations.** Now the whole of the remaining benchmark shortfall except one question: Q5, Q7, Q14 (⚠️) and Q18 (❌). A hoisting pre-pass over module-level declarations, or defer callee resolution the way gap 2 defers uses. Only adds correct edges, so unlike gap 18 there is no soundness question to settle first. BENCHMARK.md predicts it moves four answers — worth checking that prediction against the result, since a prediction that misses says the model of the gap is wrong.
+3. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
+4. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 5+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
+5. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
+6. **Gap 20 — object field flow.** Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
+7. **Cross-file test harness** — mostly done as of gap 7. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests; gap 7 added `fixtureDir` fixtures with real directory structure and the first assertions on cross-file edges. What's left is breadth: re-export chains, default exports, and `export * from`, none of which is exercised — and gap 21 is now item 1, so these fixtures are a prerequisite rather than a nice-to-have.
+8. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
+9. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
 
 **Measured August 15 2026** by calling `analyse()` directly and reading `lookups`. On `src/scripts`, 8 files: **748 resolved, 28 unresolved, 189 external — 96.4%** excluding externals. Whole repo, 12 files, 316 nodes: 89.3%. The progression over one day, same target, as each gap closed:
 
@@ -784,4 +889,4 @@ The measurement method held up for the third time: run it, rank the unresolved n
 
 Worth repeating on a second external repo once gaps 13-15 land — ideally one with decorators, namespaces, or `export *`, none of which either codebase exercises.
 
-*Last updated: August 16, 2026*
+*Last updated: August 19, 2026*

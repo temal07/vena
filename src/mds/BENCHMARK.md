@@ -196,3 +196,244 @@ Re-score this file after each. The questions do not change; that is the point of
 - "Direct feed" questions were scored at `--depth 1`; reachability questions at the default depth.
 - `file:line` is not always a unique address — `utils/crypto.ts:33` matches three declarations sharing that line (`data`, `algorithm`, `createHash`). The `file:name` form disambiguates, and the ambiguity list prints pasteable addresses, but this is a real rough edge in the addressing scheme worth fixing.
 - Twenty questions is small. It is enough to rank three causes; it is not enough to claim a percentage that will hold on another repo.
+
+---
+
+# Benchmark #2 — does it hold up as repos get larger?
+
+**August 19 2026.** Benchmark #1 asked whether the graph can answer real questions. It
+can, on one 309-file repo. This one asks the next question down: **does that answer
+survive scale, and is what survives worth an agent's tokens?**
+
+Four repos, increasing size, `analyse()` called headlessly (the viewer and its server
+bypassed, so the numbers are the engine's). Ground rules carried over from #1: any
+question where `grep` settles it does not count, and where `grep` *does* settle it,
+that is recorded as a loss rather than omitted.
+
+## The four scans
+
+| repo | files | nodes | edges | proven / inferred | time | graph.json | peak RSS |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| vena `src/` | 13 | 531 | 445 | 421 / 24 | 0.06 s | 0.6 MB | — |
+| hono `src/` | 309 | 15,325 | 9,898 | 8,486 / 1,412 | 0.78 s | 22 MB | — |
+| excalidraw `packages/` | 572 | 28,434 | 23,250 | 19,954 / 3,296 | 1.26 s | 63 MB | 0.8 GB |
+| vscode `src/` | 8,144 | 544,862 | 417,256 | 318,438 / 98,818 | 22.6 s | **1.21 GB** | **5.3 GB** |
+
+Zero parse failures at every size, including 8,144 files of vscode. **Extraction is not
+the bottleneck and this table is the good news** — gaps 13 and 14 held, and the thing
+that could not survive contact with a foreign repo four days ago now survives contact
+with one twenty-six times larger than the last one measured.
+
+Two numbers in it are problems, and they are the last two columns. See section D.
+
+---
+
+## A. The property that scales: answers stay small
+
+The failure mode this benchmark was most worried about is the one where a bigger graph
+means bigger answers — a reachability query that returns four thousand nodes is not an
+answer, it is a second problem.
+
+Undirected structure suggests exactly that. On vscode the graph has 250,948 connected
+components and **the largest holds 215,595 nodes — 40% of the graph in one blob.**
+
+It does not happen. Sampling ~300 nodes with outgoing edges per repo and measuring
+directed forward reachability:
+
+| | p50 | p75 | p90 | p99 | max |
+| --- | --- | --- | --- | --- | --- |
+| hono | 2 | 4 | 10 | 28 | 74 |
+| excalidraw | 2 | 5 | 16 | 146 | 146 |
+| vscode | 2 | 3 | 10 | 70 | **212** |
+
+**Reachability on vscode is indistinguishable from reachability on hono.** The giant
+component is a weakly-connected artifact; flow direction cuts it into small pieces. A
+trace returns tens of nodes, not thousands, at 8,144 files as much as at 309.
+
+This is the single most important result in this file. Bounded output is what makes a
+tool usable by an agent at all, it is not a property the engine was designed for, and
+it is now measured rather than hoped for.
+
+Cross-file edges hold their share too — 33.2% on hono, 25.4% on excalidraw, 29.3% on
+vscode — so the graph is not degenerating into per-file islands as it grows. 41.7% of
+vscode's nodes are isolated (no edges at all), against 40% on hono; that ratio is flat.
+
+---
+
+## B. The property that does not scale: cross-file linking
+
+Every import specifier was instrumented at `analyse.ts:244`, with type-only imports
+excluded (`import type` is deliberately outside the graph, and counting it would
+understate the rate).
+
+| | value import specifiers | linked | resolved to a file, no declaration found | no file resolved |
+| --- | --- | --- | --- | --- |
+| vena | 42 | 21 — 50% | 0 | 21 (all genuinely external) |
+| hono | 963 | 769 — **80%** | 139 | 55 |
+| excalidraw | 5,892 | 2,611 — **44%** | **2,459** | 822 |
+
+**Cross-file linkage halves between hono and excalidraw**, and the difference is not
+size — it is module structure. Two causes, filed as gaps 21 and 22, and both get *more*
+common as a repo grows, not less. This inverts the pitch: the graph is weakest exactly
+where "I can no longer hold the data flow in my head" is most true.
+
+### The measurement that ranked them
+
+excalidraw resolves cross-package imports through tsconfig `paths` — 1,209 of its
+~3,700 in-project import statements are `@excalidraw/*`. `engine.ts:284` only
+absolutizes a source that starts with `"."`, so every one of those is classified as a
+third-party package and skipped.
+
+Worse, it is skipped **silently**: `analyse.ts:235` guards the `unlinkedImports`
+counter on `isAbsolute(binding.source)`, and an unrewritten alias is not absolute. The
+run reports 234 unlinked while roughly 1,200 are missing. *The one metric whose job is
+to make missing edges visible is blind to the largest source of them.*
+
+So: hardcode the alias map, rebuild, and see what comes back. **+579 edges. 2.5%.**
+
+That non-result is the finding. `@excalidraw/element` resolves to
+`packages/element/src/index.ts`, which contains `export * from "./cropElement"`, and
+`analyse.ts:244` looks for a *declaration* named `cropElement` in that file, finds a
+re-export it has no model for, and gives up. The alias was only the first of two walls.
+2,459 of 5,892 specifiers — 42% — land on a real, analysed file and find nothing in it.
+
+Gap 21 (re-exports) is therefore the larger of the two and **neither is worth shipping
+without the other**: on a monorepo, fixing aliases alone buys 2.5%, and fixing
+re-exports alone leaves the barrel unreachable.
+
+---
+
+## C. Three gaps, resized
+
+### Gap 19 is bigger than #1 estimated, and self-analysis structurally cannot see it
+
+Benchmark #1 bounded gap 19 at "at most 148 of 719, loose upper bound." Measured
+directly — module-level `const f = () => {}` whose name is called earlier in the same
+file:
+
+| repo | arrow call sites | called before declared | share | files affected |
+| --- | --- | --- | --- | --- |
+| hono | 381 | 99 | **26%** | 35 |
+| excalidraw | 717 | 115 | **16%** | 31 |
+| vena `src/` | 3 | 0 | **0%** | 0 |
+
+*(Regex-based, so approximate in both directions; the ranking is what it is for.)*
+
+**The zero is the important row.** This repo declares before use everywhere, uses three
+arrow-function call sites in total, and therefore had a 0% chance of surfacing gap 19
+from the inside — the same lesson as gaps 13/14 in case study #1, arriving a third time.
+
+Live example: `avoidRectangularCorner` is called at `binding.ts:1500` and declared at
+`binding.ts:1616`. `vena-trace element/src/binding.ts:1618 --back` returns the header
+line and nothing else. `grep` finds the call site in 0.03 s.
+
+### Gap 20 is not "one question in twenty" on class-heavy code
+
+| repo | `this.x =` assignments | class declarations |
+| --- | --- | --- |
+| hono | 59 | 54 |
+| excalidraw | 249 | 77 |
+| vscode | **25,445** | **10,764** |
+
+Every one of those 25,445 is a missing edge. Tracing `path` in `vs/base/common/uri.ts`
+returns four within-file edges and stops, because the value goes into `this.path` and
+the graph has no node for it. On a DI/class-structured codebase gap 20 is not a ranked
+item below gaps 18 and 19 — it is the difference between a graph and no graph.
+
+### Delivery, not analysis, is what breaks first
+
+`query.ts` re-reads and re-parses the whole graph per invocation. On vscode that is
+**2.7 s and 4.1 GB RSS for one trace.** Ten traces in an agent loop is 27 s and ~40 GB
+of allocation churn, to answer questions whose *outputs* (section A) are a few hundred
+bytes.
+
+The graph itself is 1.21 GB of JSON for 8,144 files — ~150 KB per file, against ~4 KB
+per file of actual source. The compaction already in `flow.ts` (no indenting,
+`MAX_SNIPPET`) is doing real work and is nowhere near enough at this size.
+
+---
+
+## D. Head-to-head against grep
+
+Both tools, same question, same repo, output measured.
+
+**Q1. Who passes what into `elementCenterPoint` (excalidraw, `bounds.ts:1555`)?**
+
+`vena-trace … --back --depth 1` returned **23 of 25 call sites in 0.2 s**, and for each
+one named the *bound variable and its declaration site* — `hitElement` declared at
+`bucketFill.ts:1890`, `bindTarget` at `binding.ts:1618`, and so on. `grep -rn
+"elementCenterPoint("` returned 26 lines of call text that do not say what `element` is
+at `collision.ts:627`; recovering that means opening ten files.
+
+**vena wins, and this is the shape of question it should be sold on.** The two misses
+are `bounds.ts`'s own internal calls — gap 19 again. Zero wrong edges.
+
+**Q2. Where does `naturalWidth` into `cropElement` come from?**
+
+vena: nothing. grep: `App.tsx:13392`, `image.naturalWidth`, in 0.03 s. **grep wins** —
+the caller is across a package boundary, so gaps 21/22.
+
+**Q3. What does `pointerX` (`cropElement.ts:39`) reach?**
+
+vena: 1 edge, 159 bytes. grep: 5 lines, 205 bytes, covering the whole function
+including the `pointRotateRads` round-trip at lines 64/69 that vena missed. **grep wins,
+and would have on most within-file questions** — an agent can simply read the function,
+which is cheaper *and* complete.
+
+Q3 is the uncomfortable one and it should stay in this file. The engine's within-file
+edges are its most reliable, and they are also the ones an agent needs least. **The
+25–33% of edges that cross a file boundary are the entire value proposition** — which
+is what makes section B the priority it is.
+
+---
+
+## Scorecard
+
+| | verdict |
+| --- | --- |
+| Runs on a large repo at all | ✅ 8,144 files, 0 parse failures |
+| Answer size stays bounded | ✅ p90 = 10 nodes at every scale |
+| Cross-file linkage holds up | ❌ 80% → 44% on a modular repo |
+| Beats grep on cross-file provenance | ✅ Q1 |
+| Beats grep within a file | ❌ Q3 |
+| Still no wrong edges | ✅ every miss found here was a missing edge |
+
+The zero from Benchmark #1 held. Nothing in four repos produced an edge that isn't
+real; every failure above is silence.
+
+---
+
+## What this changes about priorities
+
+Benchmark #1 ended by saying coverage was never the binding constraint and the query
+surface was. That was right for one repo of 309 files. At 8,144 it is **linking** —
+and then delivery.
+
+1. **Gap 21 — re-export chains.** 2,459 specifiers on one repo, the largest single
+   measured hole in the project, and a recursive lookup at `analyse.ts:244`.
+2. **Gap 22 — tsconfig `paths`.** Small and mechanical. Ship with 21; alone it is 2.5%.
+3. **Gap 19 — hoisting pre-pass for module-level declarations.** 16–26%, and
+   re-measure Q5/Q7/Q14/Q18 in Benchmark #1 after, which predicted four moves.
+4. **Then the MCP server, over an index rather than the JSON.** Section D says the
+   agent-facing surface is one question — *who feeds this parameter, and where did that
+   value come from* — and section C says a 1.21 GB reload per call cannot serve it.
+   Keep Read for within-file questions; Q3 says that is the right division of labour.
+5. **Gap 20 — decide it, in or out.** vscode says it is the whole graph on class-heavy
+   code. It is also still the design question #1 said it was.
+
+Re-run this file after 21 and 22. The prediction on record: excalidraw's linkage moves
+from 44% toward hono's 80%, and Q2 goes from a grep win to a vena win.
+
+## Method notes / caveats
+
+- `analyse()` was called directly rather than through `flow.ts`, so no viewer or server
+  is in the timings. Alias resolution in section B is a hardcoded map in a scratch copy
+  of `engine.ts`, not a real tsconfig reader.
+- The forward-reference and `this.x =` counts are regex-derived and approximate. They
+  are used to rank causes, not to claim precision.
+- Reachability sampled ~300 nodes with outgoing edges per repo, evenly strided over
+  node order — not uniformly random, so treat the tails as indicative.
+- Timings are single-run on one machine (M-series, bun 1.3.14). vscode was built under
+  `bun --smol`; peak RSS without it will be higher.
+- Four repos is still small, and three of them are TypeScript application code. Nothing
+  here exercises decorators, namespaces, or CommonJS-heavy source.

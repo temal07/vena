@@ -1,4 +1,4 @@
-import type { Binding, Kind, Scope, Results, Use } from "./types";
+import type { Binding, Kind, Scope, Results, ReExport, Use } from "./types";
 import { TSESTree } from "@typescript-eslint/typescript-estree";
 import { resolve, dirname } from "path";
 import { KNOWN_GLOBALS } from "./globals";
@@ -6,6 +6,34 @@ import { KNOWN_GLOBALS } from "./globals";
 
 // Define the file
 let currentFile = "";
+
+/**
+ * Turns a module specifier as written into something `resolveImport` can look
+ * up: an absolute path when it points inside the project, the raw string when
+ * it names a package.
+ *
+ * The dot test used to be inline and used to be the whole theory of what an
+ * in-project import looks like — which is true right up until a project gives
+ * itself a specifier vocabulary of its own. `baseUrl` and `paths` in tsconfig
+ * do exactly that, and `"@/core/thing"` is then indistinguishable from
+ * `"react"` to a resolver that only knows about dots: bare specifier, must be a
+ * package, skip. On a monorepo that was a third of all in-project imports (gap
+ * 22), and every one of them took a whole subtree of the project out of reach.
+ *
+ * Kept as a replaceable function rather than a fixed rule because the alias map
+ * comes from a file on disk, which is `analyse`'s business, not the walker's.
+ */
+export type SpecifierResolver = (raw: string, importerFile: string) => string;
+
+/**
+ * The resolver used when nobody supplies one: relative specifiers only, which
+ * is what the engine has always done. Tests that call `collectVariables`
+ * directly get this, and so does any caller that has no tsconfig to offer.
+ */
+export const relativeSpecifierResolver: SpecifierResolver = (raw, importerFile) =>
+    raw.startsWith(".") ? resolve(dirname(importerFile), raw) : raw;
+
+let currentResolveSpecifier: SpecifierResolver = relativeSpecifierResolver;
 
 /**
  * Any identifier reached from here on flows into these, until the setter puts it
@@ -163,8 +191,13 @@ function makeUse(idNode: any): Use {
     };
 }
 
-export function collectVariables(node: TSESTree.Node, file: string): Results {
+export function collectVariables(
+    node: TSESTree.Node,
+    file: string,
+    resolveSpecifier: SpecifierResolver = relativeSpecifierResolver,
+): Results {
     currentFile = file;
+    currentResolveSpecifier = resolveSpecifier;
     // reset so that the pending uses from one file does not
     // leak into another file.
     pendingUses = [];
@@ -177,6 +210,8 @@ export function collectVariables(node: TSESTree.Node, file: string): Results {
         declarations: [], 
         lookups: { resolved: 0, unresolved: 0, external: 0 }, 
         deferredCallFeeds: [],
+        exports: new Map(),
+        reExports: [],
     };
     // A stack to know which scope we're in, so that 2 or more variables with
     // the same name can be found without ambiguity. Created fresh per call so
@@ -279,17 +314,106 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     if (node.type === "ImportDeclaration") {
         for (const spec of node.specifiers) {
             const binding = makeBinding(spec.local, "declaration", "import");
-            binding.source = node.source.value;
+            binding.source = currentResolveSpecifier(node.source.value, binding.file);
 
-            if (binding.source.startsWith(".")) {
-                const importerDir = dirname(binding.file);
-                const resolved = resolve(importerDir, binding.source);
-                // Reset it to the absolute path, not relative 
-                binding.source = resolved;
+            // What the *source* module calls this thing, which is only the same
+            // as the local name when nothing was renamed. `import { a as b }`
+            // binds `b` here but has to be asked for as `a` over there, and
+            // matching on the local name meant every renaming import silently
+            // failed to link. A default import binds whatever name the importer
+            // chose and has to be asked for as `default`; a namespace import
+            // binds the whole module object, so there is no one name to ask for.
+            binding.imported =
+                spec.type === "ImportDefaultSpecifier" ? "default" :
+                spec.type === "ImportNamespaceSpecifier" ? "*" :
+                (spec.imported as TSESTree.Identifier | undefined)?.name ?? binding.name;
+
+            // `import type { X }` and `import { type X }` — both spellings.
+            if (node.importKind === "type" || (spec as any).importKind === "type") {
+                binding.typeOnly = true;
             }
 
             stack[stack.length - 1]!.declarations.push(binding);
         }
+    }
+
+    // export ... from — a name published here that is declared somewhere else.
+    // Handled before the generic recursion because these statements have no
+    // `declaration` to descend into: the names live in `specifiers` beside a
+    // `source`, so the ordinary walk records nothing at all and a barrel file
+    // contributes zero declarations to the graph. That is gap 21, and it is why
+    // the linker's search for a declaration *inside* the barrel could never
+    // succeed — the language guarantees there is nothing there to find.
+    //
+    // The `node.source` guard matters. `export const alpha = 1` and
+    // `export { beta }` are the same node type without a source, and both
+    // already work: the first because the generic walk descends into
+    // `declaration` and the VariableDeclaration branch records `alpha`, the
+    // second because `beta` was recorded by its own `const`. Those must keep
+    // falling through to the bottom of this function.
+    if (node.type === "ExportNamedDeclaration" && node.source) {
+        const source = currentResolveSpecifier(node.source.value, currentFile);
+        for (const spec of node.specifiers) {
+            const local = (spec.local as TSESTree.Identifier | undefined)?.name;
+            const exported = (spec.exported as TSESTree.Identifier | undefined)?.name;
+            if (!local || !exported) continue;
+            const entry: ReExport = { exported, local, source };
+            if (node.exportKind === "type" || (spec as any).exportKind === "type") {
+                entry.typeOnly = true;
+            }
+            results.reExports.push(entry);
+            trace("reexport", `${exported} <- ${local} from ${node.source.value}`);
+        }
+        // Nothing in here is a use. `local` names something in the *other*
+        // file, so letting the generic walk try to resolve it against this
+        // file's scopes charged a genuine miss to the unresolved counter for a
+        // name that was never going to be in scope.
+        return;
+    }
+
+    // Everything this file publishes from its own declarations. Recorded, but
+    // deliberately *not* returned from: `export const alpha = 1` still has to
+    // fall through so the VariableDeclaration branch below declares `alpha` the
+    // way it always has. This table only says which names are public, which is
+    // a different question from which names exist — and the right one to ask
+    // when another module comes looking for one of them.
+    if (node.type === "ExportNamedDeclaration" && !node.source) {
+        // export { beta }, export { beta as b } — exported name -> local name.
+        for (const spec of node.specifiers) {
+            const local = (spec.local as TSESTree.Identifier | undefined)?.name;
+            const exported = (spec.exported as TSESTree.Identifier | undefined)?.name;
+            if (local && exported) results.exports.set(exported, local);
+        }
+        // export const/function/class/type X — published under its own name.
+        for (const name of exportedDeclarationNames(node.declaration)) {
+            results.exports.set(name, name);
+        }
+    }
+
+    // export default — recorded only when it has a name to record. An anonymous
+    // `export default () => {}` declares nothing the rest of the project can
+    // address, so there is deliberately no entry: an importer of it links to
+    // nothing, which is the honest outcome rather than a guessed one.
+    if (node.type === "ExportDefaultDeclaration") {
+        const declaration = node.declaration as any;
+        const name =
+            declaration?.type === "Identifier" ? declaration.name :
+            declaration?.id?.name ?? undefined;
+        if (name) results.exports.set("default", name);
+    }
+
+    // export * from "./other" — and export * as ns from "./other"
+    if (node.type === "ExportAllDeclaration") {
+        const source = currentResolveSpecifier(node.source.value, currentFile);
+        const entry: ReExport = { source, star: true };
+        // `export * as ns from` republishes the module as a single namespace
+        // instead of spilling its names into this one, so it is not a wildcard
+        // to search: recorded, but deliberately not followed by name later.
+        if (node.exported) entry.namespace = (node.exported as TSESTree.Identifier).name;
+        if (node.exportKind === "type") entry.typeOnly = true;
+        results.reExports.push(entry);
+        trace("reexport", `* ${entry.namespace ? `as ${entry.namespace} ` : ""}from ${node.source.value}`);
+        return;
     }
 
     // var/let/const (also for-of / for-in / classic for loop vars).
@@ -784,6 +908,31 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
 // or a rest element, and these nest inside each other. `kind` is the kind to
 // tag every name found beneath this pattern with; `varType` carries the
 // var/let/const keyword through to each leaf identifier.
+/**
+ * The names introduced by the declaration attached to an `export` — the `alpha`
+ * in `export const alpha = 1`, the `makeThing` in `export function makeThing`.
+ *
+ * Separate from `collectPatternNames` because that one builds `Binding`s to put
+ * into a scope, and this only needs the strings: the bindings themselves are
+ * created by the ordinary walk a moment later, and creating them twice would
+ * declare every exported name two times over.
+ */
+function exportedDeclarationNames(declaration: TSESTree.Node | null | undefined): string[] {
+    if (!declaration) return [];
+    const node = declaration as any;
+    // export const a = 1, b = 2 — and destructuring patterns, which really do
+    // export every leaf name: `export const { a, b } = obj` publishes both.
+    if (node.type === "VariableDeclaration") {
+        const found: Binding[] = [];
+        for (const declarator of node.declarations) {
+            collectPatternNames(declarator.id, found, "variable");
+        }
+        return found.map((binding) => binding.name);
+    }
+    // function / class / type / interface / enum — one name, on `id`.
+    return node.id?.name ? [node.id.name] : [];
+}
+
 export function collectPatternNames(pattern: TSESTree.Node | null, declarations: Binding[], kind: Kind, varType = "") {
     if (pattern === null || pattern === undefined) {
         return;

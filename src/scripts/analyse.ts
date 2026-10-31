@@ -1,8 +1,8 @@
-import { collectVariables } from "./engine";
+import { collectVariables, relativeSpecifierResolver, type SpecifierResolver } from "./engine";
 import { parse } from "@typescript-eslint/typescript-estree";
 import { Glob } from "bun";
 import type { Binding, Graph, GraphEdge, Results } from "./types";
-import { isAbsolute, resolve } from "path";
+import { dirname, isAbsolute, resolve } from "path";
 
 /**
  * Directories that are never the user's own source. Without this a plain
@@ -47,6 +47,119 @@ export function isProjectSource(relativePath: string): boolean {
    */
   if (/\.min\.[cm]?js$/.test(relativePath)) return false;
   return true;
+}
+
+/**
+ * JSON with the parts a tsconfig is allowed to have and `JSON.parse` is not:
+ * `//` and block comments, and trailing commas. Every real tsconfig in the wild
+ * has at least the comments — the one TypeScript itself scaffolds is mostly
+ * comments — so a strict parse throws on the common case and the alias map
+ * silently comes back empty.
+ *
+ * String-aware rather than a pair of regexes, because a specifier like
+ * `"https://example.com"` contains a `//` that must survive, and a Windows path
+ * contains escapes that must not end the string early.
+ */
+export function parseJsonc(text: string): any {
+  let out = "";
+  let inString = false, inLine = false, inBlock = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!, next = text[i + 1];
+    if (inLine) { if (c === "\n") { inLine = false; out += c; } continue; }
+    if (inBlock) { if (c === "*" && next === "/") { inBlock = false; i++; } continue; }
+    if (inString) {
+      out += c;
+      if (c === "\\") { out += next ?? ""; i++; }        // escape: copy the pair verbatim
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === "/" && next === "/") { inLine = true; i++; continue; }
+    if (c === "/" && next === "*") { inBlock = true; i++; continue; }
+    if (c === '"') inString = true;
+    out += c;
+  }
+  // Trailing commas, now that no comma inside a string can be mistaken for one.
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
+}
+
+/** The two fields of a tsconfig that decide what a bare specifier means. */
+type PathsConfig = { baseUrl?: string; paths: Record<string, string[]> };
+
+/**
+ * Read `baseUrl` and `paths` out of a project's tsconfig, following `extends`.
+ *
+ * Both are resolved to absolute paths here rather than at match time: `baseUrl`
+ * is relative to the file that declares it, and a config three `extends` deep
+ * declares it relative to *itself*, so the base has to be pinned as each file is
+ * read or the meaning drifts with the inheritance chain.
+ */
+async function readPathsConfig(dir: string, seen = new Set<string>()): Promise<PathsConfig> {
+  for (const name of ["tsconfig.json", "jsconfig.json"]) {
+    const configPath = resolve(dir, name);
+    if (seen.has(configPath)) return { paths: {} };       // extends cycle
+    const file = Bun.file(configPath);
+    if (!(await file.exists())) continue;
+    seen.add(configPath);
+
+    let config: any;
+    try { config = parseJsonc(await file.text()); }
+    catch { return { paths: {} }; }                        // malformed: no aliases, not a crash
+
+    // Inherited first, so the child's own settings win on conflict.
+    let result: PathsConfig = { paths: {} };
+    const extendsField = config.extends;
+    for (const parent of Array.isArray(extendsField) ? extendsField : extendsField ? [extendsField] : []) {
+      if (typeof parent !== "string" || !parent.startsWith(".")) continue;   // package extends: not resolvable here
+      const parentDir = dirname(resolve(dir, parent));
+      const inherited = await readPathsConfig(parentDir, seen);
+      result = { baseUrl: inherited.baseUrl ?? result.baseUrl, paths: { ...result.paths, ...inherited.paths } };
+    }
+
+    const options = config.compilerOptions ?? {};
+    if (typeof options.baseUrl === "string") result.baseUrl = resolve(dir, options.baseUrl);
+    if (options.paths && typeof options.paths === "object") {
+      for (const [pattern, targets] of Object.entries(options.paths)) {
+        if (Array.isArray(targets)) result.paths[pattern] = targets as string[];
+      }
+    }
+    // `paths` without `baseUrl` has been legal since TS 4.1, and then targets
+    // are relative to the config file itself.
+    if (Object.keys(result.paths).length && !result.baseUrl) result.baseUrl = dir;
+    return result;
+  }
+  return { paths: {} };
+}
+
+/**
+ * Every path a `paths` pattern says a specifier could mean, in the order the
+ * config lists them. Empty when no pattern matches, which is the signal that
+ * the specifier really is a package and should be left alone.
+ *
+ * A pattern holds at most one `*`, and TypeScript's rule is that the longest
+ * matching prefix wins — `"@/core/*"` beats `"@/*"` for `"@/core/thing"` — so an
+ * exact (starless) match is tried first and prefix matches are ranked by length.
+ */
+export function aliasCandidates(raw: string, config: PathsConfig): string[] {
+  const base = config.baseUrl;
+  if (!base) return [];
+
+  const expand = (targets: string[], wildcard: string) =>
+    targets.map((target) => resolve(base, target.replace("*", wildcard)));
+
+  const exact = config.paths[raw];
+  if (exact) return expand(exact, "");
+
+  let best: { targets: string[]; wildcard: string; length: number } | undefined;
+  for (const [pattern, targets] of Object.entries(config.paths)) {
+    const star = pattern.indexOf("*");
+    if (star === -1) continue;
+    const prefix = pattern.slice(0, star), suffix = pattern.slice(star + 1);
+    if (!raw.startsWith(prefix) || !raw.endsWith(suffix)) continue;
+    if (raw.length < prefix.length + suffix.length) continue;
+    if (best && prefix.length <= best.length) continue;
+    best = { targets, wildcard: raw.slice(prefix.length, raw.length - suffix.length), length: prefix.length };
+  }
+  return best ? expand(best.targets, best.wildcard) : [];
 }
 
 /**
@@ -129,6 +242,102 @@ function nodeId(file: string, start: number): string {
 }
 
 /**
+ * The declaration behind a name that some module publishes — following the
+ * chain of re-exports for as long as one continues (gap 21).
+ *
+ * The old one-hop version asked "is there a declaration called `name` inside
+ * this file?", which is the wrong question for a barrel. `export { makeThing }
+ * from "./thing"` creates no local binding whatsoever — referencing the name
+ * inside the barrel is a ReferenceError — so the answer was always no, and the
+ * 2,459 specifiers on excalidraw that land on a barrel all linked to nothing.
+ *
+ * Four ways to answer, most precise first:
+ *
+ *   1. the file's own export table — a name it publishes and declares itself;
+ *   2. a named re-export — forward the *source's* name, which is not always the
+ *      one this module publishes it under (`export { default as Widget }`);
+ *   3. a bare `export * from` — the star names nothing, so an unmatched name has
+ *      to be *searched* for across every star source in turn;
+ *   4. any declaration in the file with that name, exported or not.
+ *
+ * (4) is the behaviour that existed before this function did, kept as a last
+ * resort rather than replaced. The export table is built from the syntax and
+ * anything it misses would otherwise become a link that used to work and
+ * silently stopped — so the precise answers get to go first, and the loose one
+ * still catches whatever they don't. It only ever adds links, never removes.
+ *
+ * `seen` is not optional: `export *` cycles between two barrels are ordinary in
+ * real projects, and without it the first one hangs the analysis.
+ */
+function resolveExportedName(
+  file: string,
+  name: string,
+  treeResults: Record<string, Results>,
+  analysedFiles: Set<string>,
+  seen: Set<string>,
+): Binding | undefined {
+  // A namespace import binds the whole module object, not one declaration.
+  // Reaching the members would mean resolving `ns.foo` at each use site, which
+  // is a different problem entirely — so this returns nothing rather than
+  // guessing at a declaration the import never named.
+  if (name === "*") return undefined;
+
+  const key = `${file}\u0000${name}`;
+  if (seen.has(key)) return undefined;
+  seen.add(key);
+
+  const results = treeResults[file];
+  if (!results) return undefined;
+
+  const declaredHere = (local: string) =>
+    results.declarations.find((declaration) => declaration.name === local);
+
+  /** Continue into the module `source` names, asking it for `wanted`. */
+  const follow = (source: string | undefined, wanted: string) => {
+    if (!source) return undefined;
+    const next = resolveImport(source, analysedFiles);
+    return next ? resolveExportedName(next, wanted, treeResults, analysedFiles, seen) : undefined;
+  };
+
+  // 1. Published by this file under a name it declares itself.
+  const local = results.exports.get(name);
+  if (local) {
+    const declaration = declaredHere(local);
+    // `import { x } from "./a"; export { x }` — the other spelling of a barrel.
+    // The local name is bound, but to an import, so the real declaration is one
+    // module further on and under the name *that* module knows it by.
+    if (declaration?.kind === "import") {
+      const hit = follow(declaration.source, declaration.imported ?? declaration.name);
+      if (hit) return hit;
+    } else if (declaration) {
+      return declaration;
+    }
+  }
+
+  // 2. Forwarded by name from somewhere else.
+  for (const reExport of results.reExports) {
+    if (reExport.star || reExport.exported !== name) continue;
+    const hit = follow(reExport.source, reExport.local!);
+    if (hit) return hit;
+  }
+
+  // 3. Forwarded by a wildcard. `export * as ns from` is excluded on purpose:
+  // it republishes the module as a single namespace rather than spilling its
+  // names into this one, so searching through it for an arbitrary name would
+  // invent a link the source never offered.
+  for (const reExport of results.reExports) {
+    if (!reExport.star || reExport.namespace) continue;
+    const hit = follow(reExport.source, name);
+    if (hit) return hit;
+  }
+
+  // 4. Pre-existing behaviour: any declaration of that name in the file.
+  return results.declarations.find(
+    (declaration) => declaration.name === name && declaration.kind !== "import"
+  );
+}
+
+/**
  * Analyzes all source files in the given project directory, building a comprehensive
  * data flow graph of declarations, uses, and flow connections (feeds/returns/edges).
  *
@@ -156,7 +365,25 @@ export async function analyse(projectDir: string): Promise<{
    *  missing from the graph, so a consumer that cares about completeness has
    *  to look here — nothing else signals the loss. */
   skipped: { file: string, reason: string }[],
+  /** In-project import specifiers that reached no declaration — `imports.noFile`
+   *  plus `imports.noDeclaration`. Package imports are not failures and are not
+   *  counted. See `imports` for which kind of failure, which is the part that
+   *  tells you whether the resolver or the export-chain walk is at fault. */
   unlinkedImports: number,
+  /** Every import specifier bucketed by outcome. The cross-file linkage rate is
+   *  `linked / (linked + noFile + noDeclaration)` — in-project specifiers only,
+   *  since `external` is a dependency that was never meant to link and
+   *  `typeOnly` / `namespace` could not have. That is the number that reads 80%
+   *  on a repo of relative imports and collapsed to 44% on a monorepo. */
+  imports: {
+    total: number,
+    typeOnly: number,
+    namespace: number,
+    external: number,
+    noFile: number,
+    noDeclaration: number,
+    linked: number,
+  },
 }> {
   // keep each file's source around so edge clicks can show the actual code
   // at the use site, not just a file:line reference.
@@ -175,16 +402,48 @@ export async function analyse(projectDir: string): Promise<{
 
   const glob = new Glob("**/*.{ts,tsx,js,jsx,mjs,cjs}");
 
-  // Step 1: parse + walk every file in the project.
-  const treeResults: Record<string, Results> = {};
-  const skipped: { file: string, reason: string }[] = [];
-
+  // Step 0: collect the file list before parsing any of it. Scanning and
+  // parsing used to be one pass, which meant the set of project files wasn't
+  // known until the last file had been walked — and an alias resolver has to
+  // choose between the several targets a `paths` entry can list, which it can
+  // only do by asking which of them exists. Splitting the pass costs one extra
+  // traversal of an in-memory list and makes that question answerable.
+  const sourcePaths: string[] = [];
   for await (const file of glob.scan(projectDir)) {
     // disregards non-project source files
     // specified in the isProjectSource function
     if (!isProjectSource(file)) continue;
-    // resolves the absolute path of the file
-    const absolutePath = resolve(projectDir, file);
+    sourcePaths.push(resolve(projectDir, file));
+  }
+  const projectFiles = new Set(sourcePaths);
+
+  // Gap 22: teach the walker this project's own specifier vocabulary. Without
+  // it every aliased import is read as a package and skipped, which on a repo
+  // that uses them is not an edge case — it was a third of all in-project
+  // imports on excalidraw, and each one hid a whole subtree.
+  const pathsConfig = await readPathsConfig(projectDir);
+  const usesAliases = Object.keys(pathsConfig.paths).length > 0;
+  const resolveSpecifier: SpecifierResolver = usesAliases
+    ? (raw, importerFile) => {
+        if (raw.startsWith(".")) return resolve(dirname(importerFile), raw);
+        const candidates = aliasCandidates(raw, pathsConfig);
+        // No pattern matched, so this really is a package — leave it as written
+        // so it stays distinguishable from an in-project import that failed.
+        if (!candidates.length) return raw;
+        // A matched pattern with several targets is a fallback list; the first
+        // one that names a real file is the one meant. Falling back to
+        // candidates[0] when none do keeps the failure *visible*: it is an
+        // absolute path, so the unlinked counter sees an in-project miss rather
+        // than mistaking it for a dependency.
+        return candidates.find((candidate) => resolveImport(candidate, projectFiles)) ?? candidates[0]!;
+      }
+    : relativeSpecifierResolver;
+
+  // Step 1: parse + walk every file in the project.
+  const treeResults: Record<string, Results> = {};
+  const skipped: { file: string, reason: string }[] = [];
+
+  for (const absolutePath of sourcePaths) {
     // reads the file's text content
     const code = await Bun.file(absolutePath).text();
 
@@ -207,7 +466,7 @@ export async function analyse(projectDir: string): Promise<{
     // collects the variables in the AST
     // and stores the results in the treeResults object
     // format: {"some path": Results}
-    treeResults[absolutePath] = collectVariables(tree, absolutePath);
+    treeResults[absolutePath] = collectVariables(tree, absolutePath, resolveSpecifier);
     // stores the file's text content
     fileTexts[absolutePath] = code;
   }
@@ -216,8 +475,36 @@ export async function analyse(projectDir: string): Promise<{
   // declaration in the source file and move the uses onto it.
   const analysedFiles = new Set(Object.keys(treeResults));
 
-  // counts specifiers
-  let unlinkedImports = 0;
+  // Where every import specifier ended up. One number used to stand for this,
+  // and it could only ever see one of the several ways an import fails: it
+  // required `!resolvedSource`, so a specifier that found the right file and
+  // then failed to find the name in it — every barrel — was counted as a
+  // success. The instrument was wired to the wrong pipe, which is why the
+  // project's cross-file coverage looked fine from the inside for so long.
+  const imports = {
+    /** Every import specifier in the project, of every kind. */
+    total: 0,
+    /** `import type` — no value crosses, so it can never carry an edge and is
+     *  excluded from the denominator rather than counted as a failure. */
+    typeOnly: 0,
+    /** `import * as ns` — binds a module object, not a declaration. Excluded
+     *  for the same reason: reaching `ns.foo` is member resolution, a different
+     *  problem, and scoring it here would bury the two this pass is about. */
+    namespace: 0,
+    /** Specifier names no file in the project and doesn't look like it should:
+     *  an ordinary dependency, correctly skipped. */
+    external: 0,
+    /** Points inside the project but no such file — a broken or unresolvable
+     *  path. Includes an alias whose `paths` pattern matched but whose targets
+     *  don't exist, which is why the resolver returns an absolute path even
+     *  when it can't confirm one. */
+    noFile: 0,
+    /** The file was found and the name was not: gap 21's signature. Watch this
+     *  one against `linked` — it is the barrel number. */
+    noDeclaration: 0,
+    /** Reached a real declaration. The numerator. */
+    linked: 0,
+  };
 
   /** Gap 16: placeholder node id → the parameter it turned out to mean. */
   const deferredFeedResolutions = new Map<string, Binding>();
@@ -226,25 +513,39 @@ export async function analyse(projectDir: string): Promise<{
     for (const binding of fileResults.declarations) {
       // disregard non-import bindings
       if (binding.kind !== "import") continue;
+      imports.total++;
+
+      // Only specifiers that could have carried a value are scored.
+      const scored = !binding.typeOnly && binding.imported !== "*";
+      if (binding.typeOnly) imports.typeOnly++;
+      else if (binding.imported === "*") imports.namespace++;
 
       // assign the source of the import
       const resolvedSource = resolveImport(binding.source!, analysedFiles);
 
-      // if resolvedSource is undefined, increment the counter because
-      // the import couldn't link
-      if (!resolvedSource && isAbsolute(binding.source!)) unlinkedImports++;
+      if (!resolvedSource) {
+        // An absolute source is one the resolver recognised as in-project —
+        // relative, or a matched alias — so failing it is this engine's bug.
+        // Anything still bare is a package, and skipping it is correct.
+        if (scored) isAbsolute(binding.source!) ? imports.noFile++ : imports.external++;
+        continue;
+      }
 
-      const sourceResults = resolvedSource ? treeResults[resolvedSource] : undefined;
- 
-      // for undefined values of sourceResults, which are due to
-      // packages and dependencies being imported, simply skip them
-      if (sourceResults === undefined) continue;
-
-      const realDec = sourceResults.declarations.find(
-        param => param.name === binding.name && param.kind !== "import"
+      // Ask the module for the name *it* knows this by, and let it forward the
+      // question through as many re-exports as it takes.
+      const realDec = resolveExportedName(
+        resolvedSource,
+        binding.imported ?? binding.name,
+        treeResults,
+        analysedFiles,
+        new Set(),
       );
 
-      if (!realDec) continue;
+      if (!realDec) {
+        if (scored) imports.noDeclaration++;
+        continue;
+      }
+      if (scored) imports.linked++;
 
       // Gap 16: this import is now linked, so any call site that deferred its
       // argument→parameter feed can be answered. Record the answer keyed by the
@@ -354,5 +655,10 @@ export async function analyse(projectDir: string): Promise<{
     lookups.external += fileResults.lookups.external;
   }
 
-  return {graph, filesAnalysed: Object.keys(treeResults).length, lookups, skipped, unlinkedImports};
+  // Kept as the headline regression number it has always been, but now it can
+  // actually see both failure modes: a specifier that found no file, and one
+  // that found the file and not the name.
+  const unlinkedImports = imports.noFile + imports.noDeclaration;
+
+  return {graph, filesAnalysed: Object.keys(treeResults).length, lookups, skipped, unlinkedImports, imports};
 }
