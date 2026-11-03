@@ -11,19 +11,18 @@ This is the project-level picture. [`NOTES.md`](NOTES.md) holds the detail: ever
 - **Multi-file extraction.** vena scans the working directory for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs` files and records every declaration: variables, functions, parameters, classes, methods, catch parameters, imports and TypeScript types, including destructuring patterns. JSX is parsed in every extension except `.ts`. Minified bundles, `.d.ts` files and vendored directories are excluded.
 - **Survives foreign code.** A file that fails to parse is skipped and reported, and the rest of the project is still analysed.
 - **Scope resolution, including forward references.** A scope stack keeps same-named bindings distinct. A use or call reached before its declaration is retried after the walk, so hoisted functions and later `const`s still resolve and still receive their arguments.
-- **Data-flow edges.** These come from initializers, reassignment, argument → parameter at call sites (including methods, matched by name), and return → call site. Together they give full interprocedural chains: `z → p → return → a`.
+- **Data-flow edges.** These come from initializers, reassignment, argument → parameter at call sites (including methods, resolved by receiver where it can be known), and return → call site. Together they give full interprocedural chains: `z → p → return → a`.
 - **Inferred flow through unknown calls.** An argument to a callee vena can't resolve is assumed to flow into the result. These edges are labelled `inferred` and kept separate from proven ones.
 - **Cross-file linking.** Linking follows relative imports (extensionless, directory, `.js` → `.ts`), tsconfig `paths` aliases, and re-export chains (`export *`, `export { x } from`, renames, defaults). Arguments to imported functions reach the parameter in the declaring file.
 - **Visible failure.** Skipped files, unlinked imports (bucketed by cause), unresolved lookups and the proven/inferred edge split are all reported. A missing edge is never silent.
 - **Query layer.** `vena-trace` traces any node forward ("where does it end up?") or backward ("where did it come from?"). A value that enters a function through one call returns only through that call. It accepts a `file:line` or `file:name` address, with depth and size bounds, and a `--strict` mode that follows proven edges only.
-- **Tests.** 157 tests run with `bun test`, covering the walker on source strings and `analyse` end to end on temporary projects.
+- **Tests.** 173 tests run with `bun test`, covering the walker on source strings and `analyse` end to end on temporary projects.
 
 ### Next
 
 In order, per `NOTES.md` → *Next up*:
 
-1. **Call-site resolution (gaps 1 + 8).** Method calls ignore their receiver, and a later inner declaration doesn't shadow. These are the only known source of wrong edges.
-2. **MCP server.** It exposes bounded traversals to agents. It needs an on-disk index, because a large graph is too big to `JSON.parse` per query.
+1. **MCP server.** It exposes bounded traversals to agents. It needs an on-disk index, because a large graph is too big to `JSON.parse` per query.
 
 ### Future goals
 
@@ -60,9 +59,11 @@ Every declaration is identified by `file:start`, its absolute path plus its char
 
 ### Scopes and lookups
 
-A stack of scopes is pushed and popped at functions, arrow functions and blocks. A loop gets no scope of its own: its variable lands in the enclosing scope, and its body block pushes one as usual. Each binding is pushed onto the current scope. A use resolves to the nearest matching declaration, searching the stack from the top down.
+A stack of scopes is pushed and popped at functions, arrow functions, blocks, catch clauses, and loops that declare a `let`/`const` variable. Each binding is pushed onto the current scope.
 
-When a lookup fails, the use isn't dropped. It is filed as a pending use, along with a **shallow snapshot** of the scope chain at that moment, and retried once the walk ends. The snapshot freezes *which* scopes were visible, but the scope objects stay live, so by retry time they hold every declaration. A later `const` therefore resolves, and a name from a block that had already closed correctly doesn't.
+**Nothing is resolved during the walk.** Every use is filed as a pending use, along with a **shallow snapshot** of the scope chain at that moment, and resolved once the walk ends. The snapshot freezes *which* scopes were visible, but the scope objects stay live, so by then they hold every declaration. A later `const` therefore resolves, a later inner declaration correctly shadows an outer one, and a name from a block that had already closed correctly doesn't. Callees and assignment targets are resolved the same way, so a use and the flow through it always agree on which declaration they mean. Snapshots are shared while the stack is unchanged.
+
+A bare name never resolves to a method. Method names live in the scope around their class only so method calls can find them.
 
 A name that still doesn't resolve is checked against `KNOWN_GLOBALS` (`globals.ts`): `console`, `JSON`, `push`, `map` and similar. It is counted as `external` rather than as a failure. The set is a reporting aid only; nothing in the graph depends on it.
 
@@ -91,9 +92,19 @@ A use inside a `return` statement is recorded in the enclosing function's `retur
 
 When the callee is an import, its parameters live in another file that may not be parsed yet. The walker therefore stamps each argument with a **placeholder** feed whose start is negative, and records the call in `deferredCallFeeds`. The placeholder is a copy rather than a reference, because `use.feeds` holds flat copies taken when the feed is stamped. Analysis step 2b replaces each placeholder once the import has linked. A placeholder that never resolves keeps its negative start, matches no node, and is dropped in step 4. **The failure mode is a missing edge, never a wrong one.**
 
-### Later callees
+### Calls
 
-A plain call whose callee isn't in scope yet gets the same treatment: each argument is stamped with a negative-start placeholder, and the call is filed with a snapshot of the scope chain and the targets the argument would otherwise have fed. After the walk the callee is looked up again. A parameter at that position replaces the placeholder (proven). No callee, or no such parameter, falls back to the saved targets (inferred), which is what the walk would have done anyway. A callee that turns out to be an import is handed to the cross-file resolution above. Method calls are not deferred, because they match by name only and a later local of the same name would be the wrong function.
+Every call is resolved after the walk too. Each argument is stamped with a negative-start placeholder, and the call is filed with a snapshot of the scope chain and the targets the argument would otherwise have fed. Afterwards the callee is resolved once per call. A parameter at that position replaces the placeholder (proven). No callee, or no such parameter, falls back to the saved targets (inferred). A callee that turns out to be an import is handed to the cross-file resolution above.
+
+A plain call `f(x)` resolves like any name. A member call `o.m(x)` resolves only among methods, each tagged with its class:
+
+- `this.m()` → the enclosing class's `m`. A class body and its methods set what `this` means, arrows keep it, and any other function clears it.
+- `C.m()` on a local class → `C`'s own `m`.
+- an undeclared receiver (`Bun`, `console`, `window`) → external.
+- an imported receiver → unresolved.
+- otherwise → the only method named `m`, if there is exactly one and `m` isn't also a built-in method name (`map`, `get`, `add`…).
+
+Anything that doesn't resolve stays unresolved rather than guessed. The method name is recorded as a use of whatever the call resolved to.
 
 ### Call positions
 
@@ -170,7 +181,7 @@ These are exported pure functions, and the CLI is a thin `main` behind `import.m
 
 Each has a reproducing snippet in `NOTES.md`.
 
-- **Gaps 1 + 8.** Method calls resolve by name only and ignore the receiver. A later inner declaration doesn't shadow an earlier outer one. Together these are the only known source of wrong edges.
+- **Method calls without types.** A receiver that could be one of several classes, or whose method shares a built-in method's name, is left unresolved. Its arguments pass through as inferred.
 - **Gap 20.** Object fields carry no flow: `this.x = y` and reads of `this.x` produce nothing.
 - **Inferred edges over-approximate.** `n = arr.push(y)` infers `y → n`. These edges are labelled, and `--strict` excludes them.
 - **No versioning.** Variables aren't versioned, so an overwritten value still appears to reach later reads.

@@ -73,9 +73,9 @@ bun test
 
 Early and under active development.
 
-**Works today:** multi-file extraction (including JSX), scope resolution with forward references (for uses and for calls), cross-file import linking through re-export chains and tsconfig `paths` aliases, data-flow edges within and across functions (argument → parameter → return → call site), name-based method-call resolution, and forward/backward tracing with `vena-trace` that returns each value only to the call it came through.
+**Works today:** multi-file extraction (including JSX), scope resolution with forward references (for uses and for calls), cross-file import linking through re-export chains and tsconfig `paths` aliases, data-flow edges within and across functions (argument → parameter → return → call site), method-call resolution by receiver where it can be known, and forward/backward tracing with `vena-trace` that returns each value only to the call it came through.
 
-**Coming:** flow through object fields (`this.x = y`), receiver-aware method calls, and an MCP server for agents. See [`NOTES.md`](src/mds/NOTES.md) for every known gap.
+**Coming:** flow through object fields (`this.x = y`) and an MCP server for agents. See [`NOTES.md`](src/mds/NOTES.md) for every known gap.
 
 ## Internals
 
