@@ -636,6 +636,94 @@ test("gap 18: the inferred flag does not leak past the call that set it", () => 
     expect(marks).not.toContain("~r -> b");
 });
 
+// ==== Gap 19: a callee declared later in the file ====
+
+// `CallExpression` looks its callee up off the scope stack *while* walking, so
+// a function declared further down isn't there yet and its arguments never
+// reach its parameters. Uses already survived this (gap 2) — `later -> out`
+// existed — only the argument wiring was lost. 99 of hono's 381 arrow call
+// sites, 115 of excalidraw's 717.
+
+test("gap 19: an argument reaches a const arrow declared later", () => {
+    expect(feedsWithMarks(`const z = 1; const out = later(z); const later = (p) => p;`))
+        .toEqual(["later -> out", "z -> p"]);
+});
+
+test("gap 19: an argument reaches a function declaration that comes later", () => {
+    expect(feedsWithMarks(`const z = 1; const out = later(z); function later(p) { return p }`))
+        .toEqual(["later -> out", "z -> p"]);
+});
+
+test("gap 19: arguments map by position on a later callee", () => {
+    expect(feedsWithMarks(`const a = 1; const b = 2; pair(a, b); function pair(x, y) {}`))
+        .toEqual(["a -> x", "b -> y"]);
+});
+
+// Matches an earlier-declared callee: an argument with no parameter falls back
+// to gap 18's pass-through rather than being dropped or misrouted.
+test("gap 19: an extra argument to a later callee passes through, inferred", () => {
+    expect(feedsWithMarks(`const a = 1; const b = 2; const out = one(a, b); function one(p) {}`))
+        .toEqual(["a -> p", "one -> out", "~b -> out"]);
+});
+
+test("gap 19: a name that never resolves still passes through, inferred", () => {
+    expect(feedsWithMarks(`const z = 1; const out = nowhere(z);`))
+        .toEqual(["~z -> out"]);
+});
+
+test("gap 19: nested later callees chain through their parameters", () => {
+    expect(feedsWithMarks(
+        `const z = 1; const out = outer(inner(z)); function inner(q) { return q } function outer(p) { return p }`,
+    )).toEqual(["inner -> p", "outer -> out", "z -> q"]);
+});
+
+// The inner call never resolves, so its argument passes through to whatever
+// the outer call feeds — which itself was only a placeholder at the time. The
+// pass-through has to follow the outer placeholder to the real parameter and
+// keep the inferred mark on the way.
+test("gap 19: an unknown call inside a later callee feeds its parameter, inferred", () => {
+    expect(feedsWithMarks(`const z = 1; later(unknown(z)); function later(p) {}`))
+        .toEqual(["~z -> p"]);
+});
+
+test("gap 19: a later callee inside an unknown call is still proven", () => {
+    expect(feedsWithMarks(`const z = 1; const out = unknown(later(z)); function later(p) { return p }`))
+        .toEqual(["z -> p", "~later -> out"]);
+});
+
+// The retry looks the callee up through the scopes that were visible at the
+// call — a function tucked inside another function was never one of them.
+test("gap 19: a later function in a scope the call can't see is not used", () => {
+    expect(feedsWithMarks(`const z = 1; const out = h(z); function wrap() { function h(q) { return q } }`))
+        .toEqual(["~z -> out"]);
+});
+
+// Deliberately not deferred: member calls resolve by name alone (gap 1), and
+// extending that to declarations further down would bind `arr.map(f)` to any
+// later local called `map`. The argument keeps gap 18's pass-through.
+test("gap 19: a method call is not deferred to a later class", () => {
+    expect(feedsWithMarks(`const z = 1; const out = r.later(z); class R { later(p) { return p } }`))
+        .not.toContain("z -> p");
+});
+
+// Imports are hoisted, so one written below its call is still the callee. The
+// deferred call has to hand over to gap 16's cross-file resolution.
+test("gap 19: a call above its import still reaches the parameter", async () => {
+    expect(await crossFileEdges({
+        "util.ts": `export function greet(name) { return name }`,
+        "main.ts": `const who = "ada"; greet(who); import { greet } from "./util";`,
+    })).toContain("who -> name");
+});
+
+// Gap 16 and gap 19 both use negative starts in the same file. If they shared
+// ids, one call's argument would be rewritten onto the other's parameter.
+test("gap 19: import placeholders and later-callee placeholders stay separate", async () => {
+    expect(await crossFileEdges({
+        "util.ts": `export function greet(name) { return name }`,
+        "main.ts": `import { greet } from "./util"; const a = 1; const b = 2; greet(a); later(b); function later(p) {}`,
+    })).toEqual(["a -> name", "b -> p"]);
+});
+
 // ==== Gaps 21 + 22: re-export chains and tsconfig `paths` aliases ====
 
 // Both gaps are cross-file and both fail as silence, so every test goes through

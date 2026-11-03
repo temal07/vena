@@ -80,9 +80,17 @@ export interface Binding {
      *  both named functions and anonymous functions assigned to a variable
      *  (`const foo = () => {}`). */
     params?: Binding[];
-    /** Reserved for interprocedural flow (tracing a function's `return`
-     *  value back to its call sites) */
-    returns?: {name: string, file: string, start: number}[];
+    /** Never on a declaration. Set only on the per-call copy of a parameter
+     *  that engine.ts uses as a feed target while walking that call's
+     *  arguments: the call's start offset, carried into every feed stamped
+     *  against it. See `Use.call`. */
+    call?: number;
+    /** For `kind: "function"` only: every declaration a `return` in this
+     *  function reads. `direct` when the name itself is returned (`return v`);
+     *  `calls` with the start offset of each call it is the callee of
+     *  (`return f(x)` returns that call's result, not `f`). query.ts needs the
+     *  difference to keep a value inside the call it belongs to. */
+    returns?: { name: string, file: string, start: number, direct?: boolean, calls?: number[] }[];
     /** 0-based byte offset of the declaration's identifier (from `range`).
      *  Combined with `file`, this is the declaration's stable node id. */
     start: number;
@@ -124,7 +132,16 @@ export interface Use {
      *  opaque callee may ignore its argument entirely (`n = arr.push(y)`), so
      *  these are the one class of edge in the graph that can be wrong. Kept
      *  separable rather than blended in, so the strict subgraph stays provable. */
-    feeds?: { name: string; file: string; line: number; start: number; inferred?: boolean; }[];
+    feeds?: {
+        name: string; file: string; line: number; start: number; inferred?: boolean;
+        /** This use is an argument and the target is the parameter it lands
+         *  in: the start offset of that call. */
+        call?: number;
+    }[];
+    /** This use is the callee of a call (`foo` in `foo(x)`, `m` in `o.m(x)`):
+     *  the start offset of that call. With `feeds[].call` it identifies one call
+     *  site exactly, which line numbers can't when a call spans lines. */
+    call?: number;
 }
 
 /**
@@ -262,6 +279,13 @@ export type Occurrence = {
     line: number;
     /** The trimmed source line at `file:line`. */
     code: string;
+    /** The use is an argument at the call starting at this offset in `file`,
+     *  and the edge carries it into that call's parameter. */
+    argOf?: number;
+    /** The use is the callee of the call starting at this offset in `file`, and
+     *  the edge carries that call's result out. query.ts pairs the two, so a
+     *  value that went in through one call comes back out only through it. */
+    resultOf?: number;
 };
 
 /** A data-flow edge: some use of `source` fed `target` (a variable

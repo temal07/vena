@@ -90,6 +90,55 @@ type PendingUse = {
 let pendingUses: PendingUse[] = [];
 
 /**
+ * A call whose callee wasn't on the scope stack when the walk reached it — the
+ * callee is declared further down the file (gap 19). The same deferral as
+ * `PendingUse`, applied to the one lookup that used to be eager: each argument
+ * is stamped with a placeholder feed whose start is `id` (negative, like gap
+ * 16's), and once the walk is over the callee is looked up again through
+ * `chain` and the placeholder is rewritten.
+ *
+ * `fallback` is what the argument would have fed had nobody deferred anything:
+ * the enclosing targets, which gap 18 passes through as inferred. A callee that
+ * still doesn't resolve, or has no parameter at this position, falls back to
+ * exactly that — so deferring changes nothing for a call that was never going
+ * to resolve.
+ */
+type PendingCall = {
+    /** Start offset of the call, so the resolved feed knows which call it enters. */
+    call: number;
+    calleeName: string;
+    argIndex: number;
+    id: number;
+    chain: Scope[];
+    fallback: Binding[];
+};
+
+let pendingCalls: PendingCall[] = [];
+
+/** Counter behind every negative placeholder start in the current file, gap 16
+ *  and gap 19 alike. Shared, because both live in the same `use.feeds` and a
+ *  collision would rewrite one call's argument onto the other's parameter. */
+let placeholderCount = 0;
+
+type Feed = NonNullable<Use["feeds"]>[number];
+
+/** A feed entry for `target`, flagged inferred only when it is, and carrying
+ *  the call it enters when `target` is a per-call parameter copy. */
+function feedOf(target: { name: string; file: string; line: number; start: number; call?: number }, inferred: boolean): Feed {
+    const fed: Feed = { name: target.name, file: target.file, line: target.line, start: target.start };
+    if (inferred) fed.inferred = true;
+    if (target.call !== undefined) fed.call = target.call;
+    return fed;
+}
+
+/**
+ * The identifier currently being walked as a call's callee, and that call's
+ * start offset. The Identifier branch stamps the offset onto the use, which is
+ * how an edge out of a function knows which call's result it carries.
+ */
+let currentCallee: { identifier: TSESTree.Node; call: number } | null = null;
+
+/**
  * One thing the walker did, reported to whoever is watching. `kind` groups
  * them (declare / resolve / defer / feed / scope), `detail` is the human
  * sentence, `depth` is how deeply nested it was so a printer can indent.
@@ -148,12 +197,20 @@ function attachUse(found: Binding, use: Use, wasInReturnStatement: boolean, fn: 
         if (!Array.isArray(fn.returns)) {
             fn.returns = [];
         }
-        const alreadyIn = fn.returns.some(
+        let entry = fn.returns.find(
             r => r.start === found.start && r.file === found.file
         );
-        if (!alreadyIn) {
+        if (!entry) {
             // push the IDENTITY of the thing being returned:
-            fn.returns.push({ name: found.name, file: found.file, start: found.start });
+            entry = { name: found.name, file: found.file, start: found.start };
+            fn.returns.push(entry);
+        }
+        // `return f(x)` hands back the result of that call, not `f` itself.
+        if (use.call !== undefined) {
+            entry.calls ??= [];
+            if (!entry.calls.includes(use.call)) entry.calls.push(use.call);
+        } else {
+            entry.direct = true;
         }
     }
 
@@ -201,6 +258,9 @@ export function collectVariables(
     // reset so that the pending uses from one file does not
     // leak into another file.
     pendingUses = [];
+    pendingCalls = [];
+    placeholderCount = 0;
+    currentCallee = null;
     // Same reasoning for the walk state. A balanced walk leaves both at their
     // initial value anyway; resetting means a file that threw mid-walk can't
     // hand its leftover feed target to the next one.
@@ -243,9 +303,74 @@ export function collectVariables(
         results.lookups.resolved++;
     }
 
+    // Must run after the pending-use retry above: a use that resolved late was
+    // attached there, and its feeds can hold a placeholder too.
+    resolvePendingCalls(results);
+
     const { resolved, unresolved, external } = results.lookups;
     trace("phase", `walk finished — ${resolved} resolved, ${unresolved} unresolved, ${external} external`);
     return results;
+}
+
+/**
+ * Gap 19: answer every call that deferred its callee, now that every scope in
+ * the file is complete, and rewrite the placeholders its arguments were
+ * stamped with.
+ *
+ * A placeholder can resolve to another placeholder. In `later(unknown(z))` both
+ * calls defer: `z` feeds unknown's placeholder, whose fallback is later's
+ * placeholder, which in turn becomes later's parameter. So answers are
+ * collected first and expanded recursively afterwards. That can't cycle — a
+ * fallback is captured before its own call's placeholder exists, so it only
+ * ever points outward. Passing through a fallback marks everything beneath it
+ * inferred, the same as gap 18 does when the walk passes through directly.
+ */
+function resolvePendingCalls(results: Results): void {
+    if (pendingCalls.length === 0) return;
+
+    const answers = new Map<number, Feed[]>();
+    for (const call of pendingCalls) {
+        const callee = lookup(call.calleeName, call.chain);
+        // Imports are hoisted, so one written below the call is still its
+        // callee. Its parameters live in another file: leave the placeholder in
+        // place and queue it for gap 16's resolution in analyse.ts.
+        if (callee?.kind === "import") {
+            results.deferredCallFeeds.push({ callee, argIndex: call.argIndex, id: call.id });
+            trace("resolve", `deferred call ${call.calleeName}(arg ${call.argIndex}) -> import, resolved across files later`);
+            continue;
+        }
+        const param = callee?.params?.[call.argIndex];
+        answers.set(call.id, param
+            ? [{ ...feedOf(param, false), call: call.call }]
+            : call.fallback.map((target) => feedOf(target, true)));
+        trace("resolve", param
+            ? `deferred call ${call.calleeName}(arg ${call.argIndex}) -> param ${param.name} at offset ${param.start}`
+            : `deferred call ${call.calleeName}(arg ${call.argIndex}) -> no parameter, passes through`);
+    }
+
+    const expand = (fed: Feed): Feed[] => {
+        const answer = fed.file === currentFile ? answers.get(fed.start) : undefined;
+        if (!answer) return [fed];          // a real target, or gap 16's to resolve
+        const expanded = answer.flatMap(expand);
+        return fed.inferred ? expanded.map((e) => ({ ...e, inferred: true })) : expanded;
+    };
+
+    for (const declaration of results.declarations) {
+        for (const use of declaration.uses) {
+            if (!use.feeds?.some((fed) => fed.start < 0)) continue;
+            // One entry per target. Two routes to the same target are one feed,
+            // and it is proven if either route was.
+            const byTarget = new Map<string, Feed>();
+            for (const fed of use.feeds.flatMap(expand)) {
+                const key = `${fed.file}:${fed.start}`;
+                const seen = byTarget.get(key);
+                if (!seen) byTarget.set(key, fed);
+                else if (seen.inferred && !fed.inferred) byTarget.set(key, fed);
+            }
+            if (byTarget.size > 0) use.feeds = [...byTarget.values()];
+            else delete use.feeds;      // fell back to nothing: no target, as before
+        }
+    }
 }
 
 function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): void {
@@ -273,19 +398,12 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         const use = makeUse(node);
         // populate feeds from currentFeedTargets
         if (currentFeedTargets.length > 0) {
-            use.feeds = currentFeedTargets.map(t => {
-                const fed: { name: string; file: string; line: number; start: number; inferred?: boolean } = {
-                    name: t.name,
-                    file: t.file,
-                    line: t.line,
-                    start: t.start,
-                };
-                // Set only when true, so a proven feed stays exactly the shape it
-                // has always been and graph.json doesn't grow a false on every use.
-                if (currentFeedsInferred) fed.inferred = true;
-                return fed;
-            });
+            // Inferred is set only when true, so a proven feed stays exactly the
+            // shape it has always been and graph.json doesn't grow a false on
+            // every use.
+            use.feeds = currentFeedTargets.map(t => feedOf(t, currentFeedsInferred));
         }
+        if (currentCallee?.identifier === node) use.call = currentCallee.call;
         // 
         // Looks up the declaration of this identifier name in the scope stack,
         // returning the nearest matching declared variable/function/param, or undefined if not found
@@ -643,7 +761,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
                 save = currentFeedTargets;
                 saveInferred = currentFeedsInferred;
                 const param = calledFunc?.params?.[argIndex];
-                let target = param;
+                // A copy per call, carrying the call's position — the parameter is
+                // shared by every call to the function, the copy belongs to this one.
+                let target: Binding | undefined = param && { ...param, call: node.range[0] };
 
                 // Gap 16: the callee is imported, so the parameter to feed lives
                 // in a file that may not be parsed yet. Stand in for it with a
@@ -661,12 +781,28 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
                 if (!param && calledFunc?.kind === "import") {
                     // Give it a fake ID to resolve later (negative, since negative 
                     // positions do not exist in AST)
-                    const id = -(results.deferredCallFeeds.length + 1);
+                    const id = -(++placeholderCount);
                     target = {
                         name: calleeName, kind: "param", varType: "N/A",
                         file: currentFile, start: id, line: 0, role: "declaration", uses: [],
+                        call: node.range[0],
                     };
                     results.deferredCallFeeds.push({ callee: calledFunc, argIndex, id });
+                } else if (!calledFunc && node.callee.type === "Identifier") {
+                    // Gap 19: nothing by this name is in scope *yet*. It may be
+                    // declared further down, so stamp a placeholder the same way
+                    // and look again once the walk is over (resolvePendingCalls).
+                    // Plain calls only: a method call matches by name alone
+                    // (gap 1), and stretching that to later declarations would
+                    // bind `arr.map(f)` to any later local called `map`.
+                    const id = -(++placeholderCount);
+                    target = {
+                        name: calleeName, kind: "param", varType: "N/A",
+                        file: currentFile, start: id, line: 0, role: "declaration", uses: [],
+                        call: node.range[0],
+                    };
+                    pendingCalls.push({ call: node.range[0], calleeName, argIndex, id, chain: [...stack], fallback: save });
+                    trace("defer", `call ${calleeName}(arg ${argIndex}) — no declaration in scope yet`);
                 }
 
                 // Gap 18: with no parameter to feed, fall through to the enclosing
@@ -696,12 +832,17 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             if (node.callee.type === "MemberExpression") {
                 // Walk the object part of the member expression (e.g., 'obj' in 'obj.method')
                 walkVariables(node.callee.object, results, stack);
-                // Walk the property part as well (e.g., 'method' in 'obj.method')
+                // Walk the property part as well (e.g., 'method' in 'obj.method').
+                // Marked as this call's callee only now, after the object — which
+                // can hold calls of its own (`a(b).m()`) — has been walked.
+                currentCallee = { identifier: node.callee.property, call: node.range[0] };
                 walkVariables(node.callee.property, results, stack);
             } else {
                 // For non-member calls, walk the callee (could be identifier or another expression)
+                currentCallee = { identifier: node.callee, call: node.range[0] };
                 walkVariables(node.callee, results, stack);
             }
+            currentCallee = null;
             return;
         }
     }

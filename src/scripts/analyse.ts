@@ -1,7 +1,7 @@
 import { collectVariables, relativeSpecifierResolver, type SpecifierResolver } from "./engine";
 import { parse } from "@typescript-eslint/typescript-estree";
 import { Glob } from "bun";
-import type { Binding, Graph, GraphEdge, Results } from "./types";
+import type { Binding, Graph, GraphEdge, Occurrence, Results } from "./types";
 import { dirname, isAbsolute, resolve } from "path";
 
 /**
@@ -651,7 +651,12 @@ export async function analyse(projectDir: string): Promise<{
           edge = { source: node.id, target, occurrences: [] };
           edgesByKey.set(key, edge);
         }
-        edge.occurrences.push({ file: use.file, line: use.line, code: codeAt(use.file, use.line) });
+        // Which call this use enters as an argument, and which call's result it
+        // carries out as the callee — one edge can do both, as in `f(g())`.
+        const occurrence: Occurrence = { file: use.file, line: use.line, code: codeAt(use.file, use.line) };
+        if (fed.call !== undefined) occurrence.argOf = fed.call;
+        if (use.call !== undefined) occurrence.resultOf = use.call;
+        edge.occurrences.push(occurrence);
         allInferred.set(key, (allInferred.get(key) ?? true) && fed.inferred === true);
       }
     }

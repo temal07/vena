@@ -330,3 +330,164 @@ test("end to end: an address printed by where() resolves on a real graph", async
 
     await rm(dir, { recursive: true, force: true });
 });
+
+/* ---------------------------------------------------------- call matching */
+
+// A value that enters a function through one call can only leave through that
+// call. Without matching, `sha1(data)` traced into `createHash` and back out to
+// `sha256`'s result, because both call it — Hono benchmark Q17, a negative
+// control that broke once gap 19 gave `createHash` its incoming arguments.
+
+/** Every node a trace reaches, as `name@line`, sorted and de-duplicated. */
+async function reach(
+    source: string,
+    address: string,
+    direction: "forward" | "backward",
+    strict = false,
+): Promise<string[]> {
+    const dir = await fixtureDir({ "m.ts": source });
+    const { graph } = await analyse(dir);
+    await rm(dir, { recursive: true, force: true });
+    const [start] = resolveTarget(graph as Graph, address);
+    expect(start).toBeDefined();
+    const result = traverse(graph as Graph, indexGraph(graph as Graph), start!, { direction, strict, maxDepth: 30, maxNodes: 1000 });
+    return [...new Set(result.steps.map((s) => `${s.node.name}@${s.node.line}`))].sort();
+}
+
+const TWO_CALLERS = [
+    "function id(v) { return v }",   // 1
+    "const a = 1;",                   // 2
+    "const b = 2;",                   // 3
+    "const fromA = id(a);",           // 4
+    "const fromB = id(b);",           // 5
+].join("\n");
+
+test("call matching: forward returns only to the call the value went in through", async () => {
+    expect(await reach(TWO_CALLERS, "m.ts:a", "forward"))
+        .toEqual(["a@2", "fromA@4", "id@1", "v@1"]);
+});
+
+test("call matching: backward takes only the arguments at the call it came from", async () => {
+    expect(await reach(TWO_CALLERS, "m.ts:fromA", "backward"))
+        .toEqual(["a@2", "fromA@4", "id@1", "v@1"]);
+});
+
+// Starting inside the function there is no call to return to, so every caller
+// is a real way out — and every argument a real way in.
+test("call matching: forward from inside the function reaches every caller", async () => {
+    expect(await reach(TWO_CALLERS, "m.ts:v", "forward"))
+        .toEqual(["fromA@4", "fromB@5", "id@1", "v@1"]);
+});
+
+test("call matching: backward from a parameter reaches every argument", async () => {
+    expect(await reach(TWO_CALLERS, "m.ts:v", "backward"))
+        .toEqual(["a@2", "b@3", "v@1"]);
+});
+
+// A write inside the body is not an argument. It must be followed without
+// leaving the call — dropping it would lose `d`, and treating it as a call
+// site would make it the only match and lose `a`.
+test("call matching: a write to a parameter inside the body is still followed", async () => {
+    const source = [
+        "function f(v) {",                // 1
+        "  const d = 0;",                 // 2
+        "  if (!v) v = d;",               // 3
+        "  return v;",                    // 4
+        "}",                              // 5
+        "const a = 1;",                   // 6
+        "const b = 2;",                   // 7
+        "const fromA = f(a);",            // 8
+        "const fromB = f(b);",            // 9
+    ].join("\n");
+    expect(await reach(source, "m.ts:fromA", "backward"))
+        .toEqual(["a@6", "d@2", "f@1", "fromA@8", "v@1"]);
+});
+
+// Two levels: the value has to come back out of `inner` into `outer`'s body,
+// and out of `outer` to `x` — not to `y` (another call to outer) or `z`
+// (another call to inner).
+test("call matching: nested calls each return to their own call site", async () => {
+    const source = [
+        "function inner(q) { return q }",     // 1
+        "function outer(p) { return inner(p) }", // 2
+        "const a = 1;",                       // 3
+        "const b = 2;",                       // 4
+        "const c = 3;",                       // 5
+        "const x = outer(a);",                // 6
+        "const y = outer(b);",                // 7
+        "const z = inner(c);",                // 8
+    ].join("\n");
+    const reached = await reach(source, "m.ts:a", "forward");
+    expect(reached).toContain("x@6");
+    expect(reached).not.toContain("y@7");
+    expect(reached).not.toContain("z@8");
+});
+
+// Calls are matched by the call expression's offset, not by line, so one split
+// across lines — the argument and the callee on different lines — still returns
+// only to its own caller.
+test("call matching: a call split across lines still returns only to its caller", async () => {
+    const source = [
+        "function id(v) { return v }",   // 1
+        "const a = 1;",                   // 2
+        "const b = 2;",                   // 3
+        "const fromA = id(",              // 4
+        "  a);",                          // 5
+        "const fromB = id(b);",           // 6
+    ].join("\n");
+    const reached = await reach(source, "m.ts:a", "forward");
+    expect(reached).toContain("fromA@4");
+    expect(reached).not.toContain("fromB@6");
+});
+
+// The same edge can leave one call and enter another: in `outer(inner(a))`, the
+// `inner -> p` edge is inner's result *and* outer's argument.
+test("call matching: a result passed straight into another call keeps both calls", async () => {
+    const source = [
+        "function inner(q) { return q }",     // 1
+        "function outer(p) { return p }",     // 2
+        "const a = 1;",                       // 3
+        "const b = 2;",                       // 4
+        "const x = outer(inner(a));",         // 5
+        "const y = outer(b);",                // 6
+        "const z = inner(b);",                // 7
+    ].join("\n");
+    const reached = await reach(source, "m.ts:a", "forward");
+    expect(reached).toContain("x@5");
+    expect(reached).not.toContain("y@6");
+    expect(reached).not.toContain("z@7");
+});
+
+// A function reached by aliasing rather than calling (`const g = id`) is not
+// inside any call, so its returns lead back to every argument, as before.
+test("call matching: backward through an alias of a function is not call-restricted", async () => {
+    const source = TWO_CALLERS + "\nconst g = id;";   // line 6
+    expect(await reach(source, "m.ts:g", "backward"))
+        .toEqual(["a@2", "b@3", "g@6", "id@1", "v@1"]);
+});
+
+// A graph written before call offsets existed has neither field, so nothing is
+// ever entered or left and the trace behaves exactly as it did then.
+test("call matching: a graph without call offsets traces as it always did", () => {
+    const steps = traverse(GRAPH_FN, indexGraph(GRAPH_FN), resolveTarget(GRAPH_FN, "a.ts:x")[0]!).steps;
+    expect(names(GRAPH_FN, steps)).toContain("f");
+});
+
+// Recursion re-enters the same call every pass. Pushing it each time made every
+// pass a new context, so the walk never terminated short of the depth limit.
+test("call matching: recursion terminates without a depth limit", async () => {
+    const source = [
+        "function down(n) { return n ? down(n - 1) : n }",   // 1
+        "const start = 5;",                                   // 2
+        "const out = down(start);",                           // 3
+        "const other = down(9);",                             // 4
+    ].join("\n");
+    const dir = await fixtureDir({ "m.ts": source });
+    const { graph } = await analyse(dir);
+    await rm(dir, { recursive: true, force: true });
+    const [start] = resolveTarget(graph as Graph, "m.ts:start");
+    const result = traverse(graph as Graph, indexGraph(graph as Graph), start!, { maxDepth: 100_000, maxNodes: 100_000 });
+    const reached = result.steps.map((s) => `${s.node.name}@${s.node.line}`);
+    expect(reached).toContain("out@3");
+    expect(reached).not.toContain("other@4");
+});
