@@ -5,7 +5,7 @@
  * Usage: `vena-trace <target> [graph.json] [--back] [--strict] [--depth N] [--max N]`
  *
  * Reads the graph off disk rather than re-running the analysis, so querying
- * is decoupled from the CLI/viewer pipeline: `vena` produces the graph
+ * is decoupled from the analysis pipeline: `vena` produces the graph
  * once (see its step 5), everything here is a pure consumer of that file.
  *
  * Two questions, one traversal:

@@ -4,7 +4,8 @@ This folder is the whole of vena's static-analysis core: parse
 TypeScript/JavaScript source into an AST, walk it once to find every
 declaration and every reference to it, link references across files, and
 trace which declarations feed data into which other declarations. The
-result is a small dependency graph you can browse in [`src/viewer/`](../viewer).
+result is a dependency graph written to `graph.json` and queried with
+`vena-trace` ([`query.ts`](./query.ts)).
 
 If you're new to this codebase, read the files in this order:
 
@@ -13,10 +14,11 @@ If you're new to this codebase, read the files in this order:
 | 1 | [`types.ts`](./types.ts) | The data model (`Binding`, `Use`, `Scope`, `Results`). Read this first — everything else is built on it. |
 | 2 | [`engine.ts`](./engine.ts) | The AST walker. One file in, one `Results` out. This is where the actual analysis happens. |
 | 3 | [`analyse.ts`](./analyse.ts) | The project-wide pipeline: walk every file, link imports across files, flatten to nodes, turn `feeds` into edges. A directory path in, a `Graph` out — no I/O beyond reading source. |
-| 4 | [`flow.ts`](./flow.ts) | The `flow` CLI — parses argv, calls `analyse()`, writes `graph.json`, serves the viewer and opens it. |
+| 4 | [`flow.ts`](./flow.ts) | The `vena` CLI — analyses the working directory with `analyse()` and writes `graph.json`. |
+| 5 | [`query.ts`](./query.ts) | The `vena-trace` CLI — reads `graph.json` and traces a value forward or backward. |
 | — | [`tree.ts`](./tree.ts) | Dev utility: dumps the raw parser AST for a fixture file. Useful when adding a new node-type case to `engine.ts`. |
 | — | [`trace.ts`](./trace.ts) | Dev utility: prints what `engine.ts` *did* while walking a snippet — every name declared, every name resolved, every scope opened and closed. Reach for it when the engine's behaviour stops matching your mental model. |
-| — | [`debug.ts`](./debug.ts) | Dev utility: runs `analyse()` against `src/tests` and dumps the graph as JSON, no CLI/server/viewer. For quick inspection while iterating on `engine.ts`. |
+| — | [`debug.ts`](./debug.ts) | Dev utility: runs `analyse()` against `src/tests` and dumps the graph as JSON, no CLI. For quick inspection while iterating on `engine.ts`. |
 
 ## Mental model
 
@@ -43,7 +45,7 @@ If you're new to this codebase, read the files in this order:
         └─────────────────────┴─────────────────────────┘
                               │
                               ▼
-                  { root, nodes, edges }  ──served as /graph.json──►  viewer
+                  { root, nodes, edges }  ──written to graph.json──►  vena-trace
 ```
 
 ### The data model, in one paragraph
@@ -78,7 +80,7 @@ destructuring-target heuristics, JS-only cross-file linking gap, etc).
 ## Running things
 
 ```bash
-# Analyze the current directory and open the graph viewer in your browser
+# Analyze the current directory and write graph.json
 bun run src/scripts/flow.ts
 
 # or, once linked as a bin (see package.json's "bin" field):
@@ -90,7 +92,7 @@ bun run src/scripts/tree.ts
 # Watch the engine walk a snippet, step by step
 bun run src/scripts/trace.ts 'const a = b; const b = 2;'
 
-# Run the parse+link pipeline against src/tests without the CLI/viewer
+# Run the parse+link pipeline against src/tests without the CLI
 bun run src/scripts/debug.ts
 ```
 

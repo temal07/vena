@@ -5,8 +5,8 @@
  * Usage: `vena [output.json]`
  *
  * This file is the "productionized" counterpart to debug.ts: same pipeline,
- * but as a real CLI (argv parsing, process.exit, browser launch, graceful
- * shutdown on `q`/Ctrl+C) instead of a programmatic entry point.
+ * but as a real CLI (argv parsing, process.exit, reporting what it could not
+ * analyse) instead of a programmatic entry point.
  */
 import { resolve } from "path";
 import { analyse } from "./analyse";
@@ -15,7 +15,7 @@ const USAGE =
     "vena — map how data flows through a TypeScript/JavaScript project.\n" +
     "\n" +
     "Analyses every source file in the current directory, links uses to declarations\n" +
-    "across files, writes the graph to disk, and opens a local viewer.\n" +
+    "across files, and writes the graph to disk.\n" +
     "\n" +
     "Usage: vena [output.json]\n" +
     "  scans .ts .tsx .js .jsx .mjs .cjs in the working directory\n" +
@@ -35,10 +35,8 @@ if (outArg === "--help" || outArg === "-h") {
 const projectDir = process.cwd();
 
 const { graph, filesAnalysed, skipped, unlinkedImports } = await analyse(projectDir);
-// Serialized once and used twice: written to disk below, and served verbatim
-// to the viewer. Left compact deliberately — indenting this graph costs ~45%
-// more bytes (16.2MB vs 11.2MB on this repo) on both paths, and nothing reads
-// it by eye. Use `jq . graph.json` when you do need to.
+// Left compact deliberately — indenting this graph costs ~45% more bytes
+// (16.2MB vs 11.2MB on this repo), and nothing reads it by eye. Use `jq . graph.json` when you do need to.
 const graphJson = JSON.stringify(graph);
 
 // Write the graph to a JSON file.

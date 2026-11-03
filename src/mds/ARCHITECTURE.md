@@ -1,85 +1,170 @@
 # Architecture
 
-How vena analyzes a codebase, from source files to a data-flow graph.
+How vena analyzes a codebase, from source files to a data-flow graph you can trace.
+
+This is the project-level picture. [`NOTES.md`](NOTES.md) holds the detail: every gap with a snippet that reproduces it, how each fix was chosen, and the measurements behind the priorities. [`src/scripts/README.md`](../scripts/README.md) is the code-level tour.
 
 ## Project status
 
 ### Shipped and working
 
-- **Multi-file extraction** — scans a directory for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files and extracts every declaration (variables, functions, parameters, classes, methods, imports, and TypeScript types), including destructuring patterns.
-- **Scope resolution** — a scope stack handles functions, arrow functions, and blocks, so same-named variables in different scopes stay distinct and shadowing resolves correctly.
-- **Cross-file import linking** — a post-pass resolves local imports to their source files and connects uses to the real declaration; package imports are treated as external boundaries.
-- **Intraprocedural data-flow (`feeds`) edges** — records when a value flows into a declaration (`const a = foo()` → `foo` "feeds" `a`), with the flow target cleared at function boundaries so edges mean exactly "flows into this declaration."
-- **Argument → parameter flow** — at a direct call site, arguments are traced into the called function's parameters (`foo(z)` → `z` feeds `p`).
-- **Interactive graph viewer** — a local, search-to-reveal graph that stays readable on large codebases.
-- **Correct classification of arrow functions** — `const f = () => {}` is treated as a function, not a variable.
-- **Return → call-site flow** — tracing a function's return value back to whatever each caller assigns it to. This completes full interprocedural data flow: chaining argument → parameter → return → call site so a value can be followed all the way through a function (`z → p → return → a`).
+- **Multi-file extraction.** vena scans the working directory for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs` files and records every declaration: variables, functions, parameters, classes, methods, catch parameters, imports and TypeScript types, including destructuring patterns. JSX is parsed in every extension except `.ts`. Minified bundles, `.d.ts` files and vendored directories are excluded.
+- **Survives foreign code.** A file that fails to parse is skipped and reported, and the rest of the project is still analysed.
+- **Scope resolution, including forward references.** A scope stack keeps same-named bindings distinct. A use reached before its declaration is retried after the walk, so hoisted functions and later `const`s still resolve.
+- **Data-flow edges.** These come from initializers, reassignment, argument → parameter at call sites (including methods, matched by name), and return → call site. Together they give full interprocedural chains: `z → p → return → a`.
+- **Inferred flow through unknown calls.** An argument to a callee vena can't resolve is assumed to flow into the result. These edges are labelled `inferred` and kept separate from proven ones.
+- **Cross-file linking.** Linking follows relative imports (extensionless, directory, `.js` → `.ts`), tsconfig `paths` aliases, and re-export chains (`export *`, `export { x } from`, renames, defaults). Arguments to imported functions reach the parameter in the declaring file.
+- **Visible failure.** Skipped files, unlinked imports (bucketed by cause), unresolved lookups and the proven/inferred edge split are all reported. A missing edge is never silent.
+- **Query layer.** `vena-trace` traces any node forward ("where does it end up?") or backward ("where did it come from?"). It accepts a `file:line` or `file:name` address, with depth and size bounds, and a `--strict` mode that follows proven edges only.
+- **Tests.** 134 tests run with `bun test`, covering the walker on source strings and `analyse` end to end on temporary projects.
 
-- **Query and traversal layer** — `query <name>` reads the emitted `graph.json` and traces a declaration forward through `feeds` edges and function returns, so the graph is consumable without re-running the analysis.
-- **Forward references** — a use reached before its declaration is held with a snapshot of the scopes visible from that point and resolved after the walk, so hoisted calls and forward references produce edges instead of being dropped. Replaces the two-pass rewrite this was originally going to need; see gap 2 in `NOTES.md`.
+### Next
 
-### In progress
+In order, per `NOTES.md` → *Next up*:
 
-- **Test harness** — the project has no automated tests; correctness has been verified by reading output. See `NOTES.md` for the gaps this has allowed to go unnoticed.
+1. **Callee forward references (gap 19).** A call to a function declared later in the same file doesn't wire its arguments to the parameters.
+2. **Call-site resolution (gaps 1 + 8).** Method calls ignore their receiver, and a later inner declaration doesn't shadow. These are the only known source of wrong edges.
+3. **MCP server.** It exposes bounded traversals to agents. It needs an on-disk index, because a large graph is too big to `JSON.parse` per query.
 
 ### Future goals
 
-- **Scope-stack fix for classes, methods, types, and catch params** — these are emitted as nodes but never pushed onto the scope stack, so no use can resolve to them.
-- **Method-call resolution** — handle `obj.method()` call sites, not just direct calls, so interprocedural flow fires on the majority of real-world calls.
-- **Complete JS import resolution** — resolve imports across extensions and index files rather than assuming `.ts`.
-- **MCP server** — expose the graph to AI agents so they can query a codebase's data flow directly.
-- **Multi-language support** — additional language extractors emitting the same neutral declaration format, so the graph, linking, and query layers work unchanged across languages.
+- **Object field flow (gap 20).** `this.x = y` carries no flow. This decides whether class-heavy codebases are in scope at all.
+- **Multi-language support.** Other language extractors would emit the same `Results` shape, so linking, the graph and the query layer work unchanged.
 
-## Overview
+## Pipeline
 
-vena runs a single recursive walk over each file's AST (produced by `@typescript-eslint/typescript-estree`), building per-file results keyed by absolute path. Each declaration is identified by `{ file, start }` — a unique coordinate across the whole project, so edges can point at specific nodes.
+```
+ working directory
+       │  step 0: glob, filter (isProjectSource), read tsconfig paths
+       ▼
+ parse each file ──► walk it (engine.ts) ──► Results per file
+       │  step 1                                   │
+       ▼                                           ▼
+ step 2: link imports across files      step 2b: patch deferred call feeds
+       │
+       ▼
+ step 3: flatten declarations into nodes ──► step 4: turn feeds into edges
+       │
+       ▼
+ graph.json ──► vena-trace (query.ts)
+```
 
-## Scope resolution
+`analyse.ts` runs steps 0–4 and returns the graph plus everything it couldn't do. `flow.ts` (the `vena` CLI) writes the graph to disk and prints those reports. `query.ts` (`vena-trace`) reads the graph back and never re-runs the analysis.
 
-A stack of scopes is pushed and popped as the walk enters and leaves functions, arrow functions, and blocks. Declarations are added to the current scope; uses resolve to the nearest matching declaration by searching the stack top-down. This keeps two same-named variables in different scopes distinct and makes shadowing resolve correctly.
+## Node identity
 
-Node identity is `{ file, start }` (the character offset), which uniquely locates any declaration or use.
+Every declaration is identified by `file:start`, its absolute path plus its character offset. That pair is unique across the project, so it is both the graph's node id and the way a feed names its target. A **negative** start means "not resolved yet" (see *Imported callees* below). No real declaration can have a negative start.
 
-## Cross-file linking
+## The walk (`engine.ts`)
 
-After every file has been walked, a separate linking pass runs. For each local import, it resolves the import source to an absolute file path, finds the real declaration in that file, and moves the import's uses onto it. Package imports (bare specifiers like `react`) are treated as external boundaries and left unlinked. Running this as a post-pass avoids ordering problems — every file's declarations exist before any linking is attempted.
+`collectVariables` walks one file's AST once, recursively, and produces a `Results`. That holds the file's declarations, each with its uses attached, plus the file's export table, its re-exports, lookup counts, and the call sites it had to defer.
 
-## Data-flow edges (`feeds`)
+### Scopes and lookups
 
-A `feeds` edge on a use records the declaration a value flows into.
+A stack of scopes is pushed and popped at functions, arrow functions and blocks. A loop gets no scope of its own: its variable lands in the enclosing scope, and its body block pushes one as usual. Each binding is pushed onto the current scope. A use resolves to the nearest matching declaration, searching the stack from the top down.
 
-The mechanism is a single "current flow target" that is set as the walk enters a declaration's initializer and restored as it leaves. Any use created while a target is set is stamped with a `feeds` edge pointing at that target's identity. Save/restore around each declarator makes nesting correct — an inner declaration temporarily becomes the target and the outer one is restored afterward.
+When a lookup fails, the use isn't dropped. It is filed as a pending use, along with a **shallow snapshot** of the scope chain at that moment, and retried once the walk ends. The snapshot freezes *which* scopes were visible, but the scope objects stay live, so by retry time they hold every declaration. A later `const` therefore resolves, and a name from a block that had already closed correctly doesn't.
 
-The target is cleared at function boundaries, so a `feeds` edge means precisely "this value flows into that declaration," not merely "this value is used somewhere inside that function."
+A name that still doesn't resolve is checked against `KNOWN_GLOBALS` (`globals.ts`): `console`, `JSON`, `push`, `map` and similar. It is counted as `external` rather than as a failure. The set is a reporting aid only; nothing in the graph depends on it.
 
-## Argument → parameter flow
+### Labels versus references
 
-A function's binding carries its parameters (by identity), for both `function foo(p) {}` and `const foo = (p) => {}` forms.
+One rule appears in several places: **a non-computed name is a label, not a reference.** Object keys (`{ a: b }`), member properties (`o.p`), method keys and enum member names are not looked up. Their computed forms (`{ [k]: v }`, `o[k]`) are.
 
-At a call site with a direct (identifier) callee, the callee is resolved against the scope stack to find the function's binding. Each argument is then walked with the corresponding parameter set as the flow target, so a value passed into a call is traced into the parameter it lands in. Arguments beyond the parameter list are still walked, with no target.
+Method calls are the deliberate exception. In `r.score(z)` the property *is* resolved by name, because that is the only way method calls get edges at all.
 
-Because arguments are walked recursively, nested calls chain: in `wrap(id(z))`, `z` feeds `id`'s parameter and `id` feeds `wrap`'s parameter.
+Type space is skipped entirely. That covers annotations, type parameters, type references, `implements` clauses, and interface and type-alias bodies. A type never creates a use in value space. Enum initializers are walked, because they hold real values.
 
-Only identifier callees are resolved. A method call (`obj.m(x)`) falls through to the generic walk, so its arguments are stamped with whatever flow target is already active — usually the declaration the call result is assigned to. The edge is real, but the hop into the method's parameters is missing.
+### Feed targets
 
-## Return → call-site flow
+A `feeds` entry on a use says "this value flows into that declaration". The walker tracks the declarations that currently receive values as `currentFeedTargets`, a list, because `const { a, b } = foo()` reads `foo` once and feeds both. A flag, `currentFeedsInferred`, travels beside the list and says whether those targets are proven or assumed.
 
-The walk tracks two extra pieces of state: the function it is currently inside, and whether it is inside a `ReturnStatement`. When an identifier resolves while both hold, the identity of the resolved declaration is appended to the enclosing function's `returns` array (deduplicated by `{ file, start }`).
+The target list is saved, changed and restored around each construct that carries a value:
 
-That gives each function node a list of what it hands back. The call site half already exists — `const a = foo()` records `foo` feeding `a` — so joining them completes the chain: `z → p` (argument to parameter), `p ∈ foo.returns`, `foo → a` (call result to assignment). `query.ts` builds the reverse index of `returns` once at startup, so tracing a value can hop from a declaration to every function that returns it and continue from that function's outgoing edges.
+- **Declarators**: `const x = …` targets `x`. Each declarator targets only the names it introduced.
+- **Assignments**: `x = …` and `x += …` target `x`. The left side is walked before the target is set, so a write never feeds itself. When the left side can't be named (`o.p = …`), the enclosing target passes through unchanged.
+- **Call arguments**: each argument targets the matching parameter of the resolved callee. When the callee can't be resolved, the enclosing target passes through and the flag is set to inferred. A resolved inner call stays proven even inside an unresolved outer one.
+- **Function bodies**: the target is cleared, so an edge means "flows into this declaration", never "is used somewhere inside it".
 
-## Output
+A use inside a `return` statement is recorded in the enclosing function's `returns` list. That is the half of interprocedural flow the call site can't see.
 
-Per-file results are flattened into a node list for the graph viewer. Each node is a declaration carrying its uses and flow edges; the viewer renders nodes on demand (search-to-reveal) so the graph stays readable on large codebases.
+### Imported callees
+
+When the callee is an import, its parameters live in another file that may not be parsed yet. The walker therefore stamps each argument with a **placeholder** feed whose start is negative, and records the call in `deferredCallFeeds`. The placeholder is a copy rather than a reference, because `use.feeds` holds flat copies taken when the feed is stamped. Analysis step 2b replaces each placeholder once the import has linked. A placeholder that never resolves keeps its negative start, matches no node, and is dropped in step 4. **The failure mode is a missing edge, never a wrong one.**
+
+### Exports
+
+The walker records what each file publishes:
+
+- `exports` maps each exported name to its local name: `export const x`, `export { a as b }`, and a named `export default`.
+- `reExports` lists each `export … from` and `export * from`, with its already-resolved source.
+
+Re-export statements are not walked for uses, since their names belong to another file.
+
+## Cross-file linking (`analyse.ts`)
+
+### Which file an import names
+
+**Before the walk.** `readPathsConfig` reads `baseUrl` and `paths` from `tsconfig.json` or `jsconfig.json`, following relative `extends` by the exact file each one names. The walker then gets a specifier resolver:
+
+- A relative specifier becomes an absolute path.
+- A specifier matching an alias becomes the absolute path of its first target that exists. An exact pattern beats a wildcard, and the longest prefix wins.
+- Anything else stays bare, which marks it as a package.
+
+**After the walk.** `resolveImport` turns that absolute base into a real analysed file. It tries the path as written, then each known extension, then `index.<ext>` (a directory import), then `.js` → `.ts`. It checks against the set of analysed files rather than the disk. A `.d.ts` that exists but was excluded must not become a link target.
+
+### Which declaration an import names
+
+`resolveExportedName` asks the target file for the name *it* knows the binding by. A renamed import (`import { a as b }`) is asked for `a`, and a default import for `default`. It answers in four steps:
+
+1. the file's own export table, following `import { x } … export { x }` one module further on
+2. a named re-export, asking the source module for its own name for the binding
+3. each `export * from` source in turn (not `export * as ns`, which publishes a namespace object rather than names)
+4. any declaration of that name in the file, kept as a last resort so the precise steps only ever add links
+
+A visited set stops `export *` cycles. Once linked, the uses recorded against the local import binding move onto the real declaration, so edges cross the file boundary.
+
+### Reporting
+
+Every import specifier lands in exactly one bucket:
+
+- `linked`
+- `external`: a package, correctly skipped
+- `noFile`: points inside the project, but no file matches. This includes an alias whose targets don't exist.
+- `noDeclaration`: the file resolved, but the name didn't
+- `typeOnly` and `namespace`: can't carry a value, so excluded from the rate
+
+The cross-file linkage rate is `linked / (linked + noFile + noDeclaration)`. `unlinkedImports` is `noFile + noDeclaration`.
+
+## Graph output
+
+**Nodes.** Step 3 flattens every non-import declaration into a node.
+
+**Edges.** Step 4 reads each use's feeds and draws one edge per (used declaration → fed declaration) pair. Each edge keeps every use site that contributed to it, with a code snippet. An edge is marked `inferred` only if *every* use behind it was inferred, since one proven use makes the edge real. Edges whose target isn't a node are dropped. That covers unresolved placeholders and imports.
+
+`vena` writes the graph as compact JSON. For scale: Hono's 309 files take about 1 s and produce 22 MB, and vscode's 8,144 files take 23 s and produce 1.2 GB. The second figure is why the MCP server needs an index instead of reading the whole file.
+
+## Query layer (`query.ts`)
+
+`indexGraph` builds four lookups: node by id, outgoing edges, incoming edges, and a reverse map of `returns` (from a declaration to the functions that return it).
+
+`traverse` walks one direction, with a visited set, depth and size bounds, and an optional proven-only mode. The interprocedural hop works differently in each direction:
+
+- **Forward** arrives holding a declaration. It uses the reverse `returns` map to hop to each function that returns it, then follows that function's outgoing edges to its call sites.
+- **Backward** arrives holding a function and reads `returns` straight off the node.
+
+`resolveTarget` accepts the same address format the output prints (`file:line`, `file:name`, or a bare name). An ambiguous address lists its candidates in a form that can be pasted straight back.
+
+These are exported pure functions, and the CLI is a thin `main` behind `import.meta.main`. An MCP server would call the same functions.
 
 ## Known limitations
 
-Full detail, with reproducing snippets, is in `NOTES.md`.
+Each has a reproducing snippet in `NOTES.md`.
 
-- Call resolution handles direct calls (`foo(x)`); method calls (`obj.foo(x)`) do not reach the method's parameters.
-- The single-pass walk cannot resolve a use that appears before its declaration in source order (function hoisting, forward references, loop bodies). The use is dropped silently — no node, no edge, no warning.
-- Classes, class methods, TS type declarations, and catch parameters are recorded as nodes but never pushed onto the scope stack, so no use ever resolves to them.
-- A destructuring declaration only takes its last bound name as the flow target: `const { a, b } = foo()` gives `foo → b` and nothing for `a`.
-- Only declaration initializers set a flow target; reassignment (`x = foo()`) produces no edge.
-- Shorthand object properties (`{ z }`) record the same use twice, inflating an edge's occurrence list.
-- Cross-file linking appends `.ts` unconditionally, so pure-JS projects, directory imports, and explicit extensions do not link.
+- **Gap 19.** Callee lookup is eager, so a function declared later in the same file gets no argument → parameter edges.
+- **Gaps 1 + 8.** Method calls resolve by name only and ignore the receiver. A later inner declaration doesn't shadow an earlier outer one. Together these are the only known source of wrong edges.
+- **Gap 20.** Object fields carry no flow: `this.x = y` and reads of `this.x` produce nothing.
+- **Inferred edges over-approximate.** `n = arr.push(y)` infers `y → n`. These edges are labelled, and `--strict` excludes them.
+- **No versioning.** Variables aren't versioned, so an overwritten value still appears to reach later reads.
+- **Imports not yet handled.** Namespace imports (`ns.foo`) and package `extends` in tsconfig.
+- **Assignments not yet handled.** Destructuring assignment (`[a, b] = foo()`).

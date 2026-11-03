@@ -18,18 +18,18 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Argument flow through an unknown callee      | ✅ Passes through, marked `inferred` — gap 18 |
 | Return capture (`returns` on function nodes) | ✅ Done                                    |
 | Object field flow (`this.x = y`)             | ❌ Not tracked at all — see gap 20         |
-| Graph output + local viewer (`flow <dir>`)   | ✅ Done                                    |
+| Graph output (`vena`, writes `graph.json`)   | ✅ Done — viewer removed November 2026     |
 | Query/traversal layer (`query <target>`)     | ✅ Forward + backward, addressable, bounded |
 | Forward references                           | ✅ For uses (gap 2) — ❌ for callees (gap 19) |
 | Reassignment (`x = foo()`)                   | ✅ Done — not destructuring, see gap 5     |
 | Method-call resolution                       | ⚠️ Name-only — 0.4% ambiguous live, gap 1  |
 | Resolution reporting (`Results.lookups`)     | ⚠️ Counts, but globals list is thin        |
-| Cross-file linking (imports → declarations)  | ⚠️ 80% of value imports on Hono, **44%** on a monorepo — gaps 21, 22 |
+| Cross-file linking (imports → declarations)  | ✅ Follows re-exports and tsconfig `paths` (gaps 21, 22) — was 80% on Hono, 44% on a monorepo; not yet re-measured |
 | Runs on an arbitrary repo                    | ✅ Survives bad files, reports them        |
 | Runs on a *large* repo                       | ✅ 8,144 files, 0 parse failures, 23 s — but 1.2 GB graph |
 | Answer size at scale                         | ✅ p90 = 10 nodes, flat from 309 to 8,144 files |
 | JSX / `.tsx` support                         | ✅ Done — `.ts` stays non-JSX, see gap 13  |
-| Automated tests                              | ⏳ Partial — 105 tests across 2 files      |
+| Automated tests                              | ⏳ Partial — 134 tests across 2 files      |
 | Answers real questions end to end            | ⚠️ 15/20 on Hono, **0 wrong** — degrades on modular repos, BENCHMARK.md |
 | MCP wrapper                                  | ⏳ Planned — see item 3 in Next up         |
 
@@ -38,7 +38,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 
 ## What works
 
-Most of these are guarded by `bun test` (89 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
+Most of these are guarded by `bun test` (134 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
 
 **Scope and shadowing.** `const x = 1; function f() { const x = 2; const y = x }` — the inner `x` feeds `y`; the outer `x` is untouched.
 
@@ -650,7 +650,7 @@ Every one of those 25,445 is a missing edge. Tracing `path` in `vs/base/common/u
 
 ---
 
-### 21. Re-export chains are not followed
+### 21. Re-export chains are not followed — ✅ RESOLVED November 2026
 
 `analyse.ts:244` links an import by looking for a **declaration** in the resolved file whose name matches the specifier. A barrel file has no such declaration — it has a re-export:
 
@@ -669,9 +669,22 @@ Likely fix: when the resolved file has no matching declaration, check its re-exp
 
 **Ship with gap 22.** Alone, on a monorepo, this leaves the barrel unreachable behind an unresolved alias.
 
+**Fixed, together with gap 22.** `engine.ts` now records what each file publishes: `results.exports` maps exported names to local ones (`export const x`, `export { a as b }`, a named `export default`), and `results.reExports` holds every `export … from` and `export * from`. Linking goes through `resolveExportedName` in `analyse.ts`, which answers in four steps, most precise first:
+
+1. the file's own export table, following an `import { x } … export { x }` one module further on
+2. a named re-export, asking the source for *its* name (`export { default as Widget }`)
+3. each `export * from` source in turn
+4. any declaration of that name in the file — the old behaviour, kept as a last resort so this only ever adds links
+
+A visited set keyed by file and name stops `export *` cycles, which are ordinary between barrels. `export * as ns` is recorded but not searched, because it republishes one namespace object rather than spilling names. Namespace imports (`import * as ns`) still link to nothing; reaching `ns.foo` is member resolution, a different problem.
+
+The counter was rebuilt alongside. `analyse` now returns `imports`, bucketing every specifier: `typeOnly` and `namespace` are excluded from the denominator, and an in-project miss is either `noFile` or `noDeclaration`. That second bucket is this gap's signature — a resolved file without the name — and the old counter scored it as a success.
+
+Twelve tests in `engine.test.ts`. **Not yet re-measured on excalidraw**: the 44% linkage figure is from before the fix, and `imports.linked / (linked + noFile + noDeclaration)` is the number to re-run.
+
 ---
 
-### 22. tsconfig `paths` aliases are treated as third-party — and not counted
+### 22. tsconfig `paths` aliases are treated as third-party — and not counted — ✅ RESOLVED November 2026
 
 `engine.ts:284` only rewrites an import source to an absolute path when it starts with `"."`. A tsconfig path alias does not, so it falls through to `resolveImport`, misses, and is skipped as an external package.
 
@@ -687,6 +700,21 @@ The second half is worse than the first. `analyse.ts:235` guards the `unlinkedIm
 Fix: read `compilerOptions.paths` and `baseUrl` from the nearest tsconfig at analysis start, and apply the mapping in the same place `"."` is handled today. Mechanical.
 
 **On its own it is worth 2.5%** — patching the alias map by hand on excalidraw took the graph from 23,250 to 23,829 edges, because the aliases point at barrels and gap 21 then drops them. The two gaps are one fix in two parts.
+
+**Fixed, together with gap 21.** `analyse` reads `baseUrl` and `paths` from the project's `tsconfig.json` (or `jsconfig.json`) before walking, and hands the walker a specifier resolver. Relative specifiers resolve as before; a specifier matching an alias becomes an absolute path; anything else stays bare and counts as `external`. The matcher follows TypeScript's rules — an exact pattern beats a wildcard, the longest prefix wins, and a fallback list takes the first target that names an analysed file.
+
+The counter half is fixed by that last step. A matched alias always comes back absolute, even when none of its targets exist, so an alias pointing at nothing lands in `noFile` instead of being waved through as a dependency.
+
+Details worth knowing:
+
+- `baseUrl` is pinned to the config file that declares it, so a value inherited three `extends` deep keeps its meaning.
+- `paths` without `baseUrl` (legal since TS 4.1) resolves relative to the config file.
+- Relative `extends` are followed, with or without `.json`, and a cycle stops. Package `extends` (`"@tsconfig/node20"`) are skipped.
+- A malformed tsconfig means no aliases, not a crash. Comments and trailing commas parse.
+
+**A bug the tests caught after the first version shipped:** `extends` was resolved to its *directory*, which was then searched for `tsconfig.json`. That threw the filename away, so `"extends": "./tsconfig.base.json"` — the usual monorepo spelling — was never read, and every alias it defined counted as `external`: the exact silence this gap was filed for. Fixed in `e60fd2b` by reading the file `extends` names.
+
+Seventeen tests in `engine.test.ts`.
 
 ---
 
@@ -814,17 +842,16 @@ So the hypothesis under test is *"fewer tool calls for the same answer"*, not *"
 
 The lesson worth carrying, third version: ranked by resolution rate → call-site resolution was first. Ranked by benchmark failures → it fell to third. Ranked across repo *shapes* → the top two items are gaps 21 and 22, which cost nothing at all on hono and half the cross-file graph on a monorepo. **Each reranking came from widening what was being measured, never from measuring the same thing harder.**
 
-Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20.
+Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20. Gaps 21 + 22 came off it in November 2026; re-measuring excalidraw's linkage is what will say whether they moved the 44%.
 
-1. **Gaps 21 + 22 — re-exports and tsconfig `paths`, as one change.** 2,459 and ~1,200 import specifiers on excalidraw; 44% of value imports link where hono gets 80%. Ship together: aliases alone bought 2.5% when measured, because they land on barrels. Fixing these is what makes the cross-file edges — the only ones worth having, per #2's grep head-to-head — actually exist on a repo with module boundaries. Gap 22 also has to move the `unlinkedImports` counter off `isAbsolute`, so the metric stops being blind to its own largest miss.
-2. **Gap 19 — callee lookup can't see later declarations.** Now the whole of the remaining benchmark shortfall except one question: Q5, Q7, Q14 (⚠️) and Q18 (❌). A hoisting pre-pass over module-level declarations, or defer callee resolution the way gap 2 defers uses. Only adds correct edges, so unlike gap 18 there is no soundness question to settle first. BENCHMARK.md predicts it moves four answers — worth checking that prediction against the result, since a prediction that misses says the model of the gap is wrong.
-3. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
-4. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 5+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
-5. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
-6. **Gap 20 — object field flow.** Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
-7. **Cross-file test harness** — mostly done as of gap 7. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests; gap 7 added `fixtureDir` fixtures with real directory structure and the first assertions on cross-file edges. What's left is breadth: re-export chains, default exports, and `export * from`, none of which is exercised — and gap 21 is now item 1, so these fixtures are a prerequisite rather than a nice-to-have.
-8. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
-9. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
+1. **Gap 19 — callee lookup can't see later declarations.** Now the whole of the remaining benchmark shortfall except one question: Q5, Q7, Q14 (⚠️) and Q18 (❌). A hoisting pre-pass over module-level declarations, or defer callee resolution the way gap 2 defers uses. Only adds correct edges, so unlike gap 18 there is no soundness question to settle first. BENCHMARK.md predicts it moves four answers — worth checking that prediction against the result, since a prediction that misses says the model of the gap is wrong.
+2. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
+3. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 4+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
+4. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
+5. **Gap 20 — object field flow.** Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
+6. **Cross-file test harness** — mostly done. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests, gap 7 the first assertions on cross-file edges, and gaps 21/22 the breadth that was missing: re-export chains, default exports, `export * from`, and tsconfig aliases. What's left is whatever the next gap needs.
+7. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
+8. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
 
 **Measured August 15 2026** by calling `analyse()` directly and reading `lookups`. On `src/scripts`, 8 files: **748 resolved, 28 unresolved, 189 external — 96.4%** excluding externals. Whole repo, 12 files, 316 nodes: 89.3%. The progression over one day, same target, as each gap closed:
 
@@ -889,4 +916,4 @@ The measurement method held up for the third time: run it, rank the unresolved n
 
 Worth repeating on a second external repo once gaps 13-15 land — ideally one with decorators, namespaces, or `export *`, none of which either codebase exercises.
 
-*Last updated: August 19, 2026*
+*Last updated: November 3, 2026*

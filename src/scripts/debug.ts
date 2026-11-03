@@ -1,12 +1,12 @@
 /**
  * debug.ts — no-CLI runner for the analysis pipeline, for local iteration.
  *
- * Runs the same `analyse()` (analyse.ts) that the `flow` CLI runs and dumps
+ * Runs the same `analyse()` (analyse.ts) that the `vena` CLI runs and dumps
  * the result as JSON, with everything CLI/server-shaped left out — no argv
- * parsing, no viewer, no `process.exit`/browser-open/shutdown-on-keypress.
+ * parsing, no `process.exit`, no file written.
  * Exists so a new engine.ts feature can be exercised against `../tests` (or
  * any directory — change `dirToAnalyse`) with a plain `bun run`, without
- * spinning up the graph viewer.
+ * going through the CLI.
  *
  * This file used to carry its own hand-copied duplicate of steps 1-3 of the
  * pipeline, written before analyse.ts was extracted out of flow.ts. It
