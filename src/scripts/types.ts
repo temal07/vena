@@ -80,6 +80,12 @@ export interface Binding {
      *  both named functions and anonymous functions assigned to a variable
      *  (`const foo = () => {}`). */
     params?: Binding[];
+    /** For methods only: the class the method belongs to, as the start offset
+     *  of the class's name (or of the class itself when it has none), in the
+     *  same file. A method's name lives in the scope around its class, so this
+     *  is what keeps a bare `score()` from resolving to it and lets `this.m()`
+     *  pick the enclosing class's `m` (gap 1). */
+    methodOf?: number;
     /** Never on a declaration. Set only on the per-call copy of a parameter
      *  that engine.ts uses as a feed target while walking that call's
      *  arguments: the call's start offset, carried into every feed stamped
@@ -171,6 +177,8 @@ export type Scope = {
         Only works for function scopes
     */
     savedFunction: Binding | null;
+    /** Function scopes only: the class `this` referred to before entering. */
+    savedThisClass?: number | null;
 }
 
 /**

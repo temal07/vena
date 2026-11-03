@@ -16,7 +16,7 @@
  * Anything genuinely declared in the source still shadows this: the set is
  * only consulted after the scope chain has already come up empty.
  */
-export const KNOWN_GLOBALS = new Set([
+const GLOBAL_NAMES = [
     // Runtime objects and namespaces
     "globalThis", "console", "process", "Bun", "window", "document", "navigator",
     "performance", "crypto", "localStorage", "sessionStorage", "fetch", "Buffer",
@@ -32,7 +32,15 @@ export const KNOWN_GLOBALS = new Set([
     "parseInt", "parseFloat", "isNaN", "isFinite", "structuredClone",
     "setTimeout", "clearTimeout", "setInterval", "clearInterval", "queueMicrotask",
     "encodeURIComponent", "decodeURIComponent", "NaN", "Infinity", "undefined",
-    // Built-in method names, reached via gap 1's name-only method resolution
+];
+
+/**
+ * Method names the language and runtime define on their own objects. Kept
+ * apart from the globals because gap 1 needs them on their own: when a project
+ * declares a method with one of these names, `xs.map(f)` could be the array's
+ * or the project's, and without types there is no telling which.
+ */
+export const BUILTIN_METHODS = new Set([
     "push", "pop", "shift", "unshift", "slice", "splice", "concat", "join",
     "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
     "sort", "reverse", "includes", "indexOf", "keys", "values", "entries",
@@ -42,3 +50,5 @@ export const KNOWN_GLOBALS = new Set([
     "toLowerCase", "toUpperCase", "stringify", "parse", "log", "warn", "error",
     "exit", "resolve", "reject", "all", "from", "of", "assign", "freeze",
 ]);
+
+export const KNOWN_GLOBALS = new Set([...GLOBAL_NAMES, ...BUILTIN_METHODS]);

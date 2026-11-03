@@ -1,7 +1,7 @@
 import type { Binding, Kind, Scope, Results, ReExport, Use } from "./types";
 import { TSESTree } from "@typescript-eslint/typescript-estree";
 import { resolve, dirname } from "path";
-import { KNOWN_GLOBALS } from "./globals";
+import { BUILTIN_METHODS, KNOWN_GLOBALS } from "./globals";
 // loc gives us line numbers, which is off by default in typescript-estree.
 
 // Define the file
@@ -90,30 +90,157 @@ type PendingUse = {
 let pendingUses: PendingUse[] = [];
 
 /**
- * A call whose callee wasn't on the scope stack when the walk reached it — the
- * callee is declared further down the file (gap 19). The same deferral as
- * `PendingUse`, applied to the one lookup that used to be eager: each argument
- * is stamped with a placeholder feed whose start is `id` (negative, like gap
- * 16's), and once the walk is over the callee is looked up again through
- * `chain` and the placeholder is rewritten.
+ * Every call's callee is resolved after the walk, never during it. During the
+ * walk a later declaration isn't in scope yet — so a function declared further
+ * down got no arguments (gap 19), and an inner function declared further down
+ * lost to an outer one it shadows (gap 8). Resolving everything afterwards,
+ * through the scopes that were visible at the call, gets both right.
+ *
+ * One `CallSite` per call, shared by its arguments and its callee use so they
+ * all agree on the answer: `resolved` memoises it.
+ */
+type Receiver = { kind: "this" } | { kind: "name"; name: string } | { kind: "other" };
+
+type CallSite = {
+    /** Start offset of the call expression. */
+    start: number;
+    name: string;
+    chain: Scope[];
+    /** Present for `o.m(x)`; absent for a plain `m(x)`. */
+    receiver?: Receiver;
+    /** The class `this` refers to at the call, if any. */
+    thisClass: number | null;
+    resolved?: { callee?: Binding; external: boolean };
+};
+
+/**
+ * One argument of a call. It was stamped with a placeholder feed whose start is
+ * `id` (negative, like gap 16's), rewritten once the call is resolved.
  *
  * `fallback` is what the argument would have fed had nobody deferred anything:
  * the enclosing targets, which gap 18 passes through as inferred. A callee that
- * still doesn't resolve, or has no parameter at this position, falls back to
- * exactly that — so deferring changes nothing for a call that was never going
- * to resolve.
+ * doesn't resolve, or has no parameter at this position, falls back to exactly
+ * that — so deferring changes nothing for a call that was never going to resolve.
  */
 type PendingCall = {
-    /** Start offset of the call, so the resolved feed knows which call it enters. */
-    call: number;
-    calleeName: string;
+    site: CallSite;
     argIndex: number;
     id: number;
-    chain: Scope[];
     fallback: Binding[];
 };
 
 let pendingCalls: PendingCall[] = [];
+
+/** The method name in `o.m(x)`, resolved with its call rather than as a name. */
+type PendingCallee = { site: CallSite; use: Use; inReturnStatement: boolean; fn: Binding | null };
+
+let pendingCallees: PendingCallee[] = [];
+
+/**
+ * The write target of `x = …`, resolved after the walk for the same reason as a
+ * callee: the use of `x` is, so the write has to be too, or a later inner
+ * `var x` would get the use and an outer `x` the value (gap 8).
+ */
+type PendingTarget = { name: string; chain: Scope[]; id: number; fallback: Binding[]; fallbackInferred: boolean };
+
+let pendingTargets: PendingTarget[] = [];
+
+/**
+ * Class bookkeeping for gap 1. `classStack` holds the classes being walked, so a
+ * method knows which one it belongs to. `thisClass` is what `this` refers to
+ * right now: the class inside its body and methods, kept by arrows, and cleared
+ * by any other function, which gets a `this` of its own.
+ */
+let classStack: number[] = [];
+let thisClass: number | null = null;
+let savedThisClasses: (number | null)[] = [];
+/** Set by MethodDefinition just before walking the method's function. */
+let nextFunctionIsMethod = false;
+
+/**
+ * A shallow copy of the scope stack, shared between every note filed while the
+ * stack is unchanged. Deferring every lookup files a note per identifier, and a
+ * copy each would be the cost. Same length and same top scope means the same
+ * chain: a scope object is pushed once and never re-pushed.
+ */
+let chainCache: { length: number; top: Scope | undefined; chain: Scope[] } | null = null;
+
+function chainOf(stack: Scope[]): Scope[] {
+    const top = stack[stack.length - 1];
+    if (chainCache && chainCache.length === stack.length && chainCache.top === top) return chainCache.chain;
+    chainCache = { length: stack.length, top, chain: [...stack] };
+    return chainCache.chain;
+}
+
+/** A stand-in feed target with a negative start, rewritten after the walk. */
+function placeholder(name: string, call?: number): Binding {
+    const target: Binding = {
+        name, kind: "param", varType: "N/A",
+        file: currentFile, start: -(++placeholderCount), line: 0, role: "declaration", uses: [],
+    };
+    if (call !== undefined) target.call = call;
+    return target;
+}
+
+function receiverOf(object: TSESTree.Node): Receiver {
+    if (object.type === "ThisExpression") return { kind: "this" };
+    if (object.type === "Identifier") return { kind: "name", name: object.name };
+    return { kind: "other" };
+}
+
+/** Every method called `name` visible from `chain` — all of them, not the
+ *  nearest, because which class a receiver holds is the open question. */
+function methodsNamed(name: string, chain: Scope[]): Binding[] {
+    const found: Binding[] = [];
+    for (const scope of chain) {
+        for (const d of scope.declarations) {
+            if (d.name === name && d.methodOf !== undefined && !found.includes(d)) found.push(d);
+        }
+    }
+    return found;
+}
+
+/**
+ * Which method `o.m(x)` calls, without types (gap 1). Each rule answers only
+ * when it can be sure, and anything else is left unresolved — which costs an
+ * edge, where a guess could invent one.
+ *
+ *   this.m()     — the enclosing class's `m`
+ *   C.m()        — class `C`'s own `m`
+ *   Bun.m()      — an undeclared receiver is the environment's, never ours
+ *   ns.m()       — an import's members belong to another module
+ *   anything.m() — the one method called `m`, if there is exactly one and the
+ *                  name isn't also a built-in method (`xs.map` could be either)
+ */
+function resolveMethod(site: CallSite): { callee?: Binding; external: boolean } {
+    const methods = methodsNamed(site.name, site.chain);
+    const receiver = site.receiver!;
+
+    if (receiver.kind === "this" && site.thisClass !== null) {
+        const own = methods.filter((m) => m.methodOf === site.thisClass);
+        if (own.length === 1) return { callee: own[0], external: false };
+        // Not declared on this class — inherited, perhaps. Fall through.
+    }
+    if (receiver.kind === "name") {
+        const holder = lookup(receiver.name, site.chain);
+        if (!holder) return { external: true };
+        if (holder.kind === "import") return { external: false };
+        if (holder.kind === "class") {
+            const own = methods.filter((m) => m.methodOf === holder.start);
+            return { callee: own.length === 1 ? own[0] : undefined, external: false };
+        }
+    }
+    if (methods.length !== 1) return { external: false };
+    if (receiver.kind !== "this" && BUILTIN_METHODS.has(site.name)) return { external: false };
+    return { callee: methods[0], external: false };
+}
+
+function resolveSite(site: CallSite): { callee?: Binding; external: boolean } {
+    site.resolved ??= site.receiver
+        ? resolveMethod(site)
+        : { callee: lookup(site.name, site.chain), external: false };
+    return site.resolved;
+}
 
 /** Counter behind every negative placeholder start in the current file, gap 16
  *  and gap 19 alike. Shared, because both live in the same `use.feeds` and a
@@ -179,7 +306,9 @@ function trace(kind: string, detail: string, depthChange: 0 | 1 | -1 = 0): void 
 /** Innermost-scope-outward lookup of `name` or undefined if there is nothing binding to it */
 function lookup(name: string, chain: Scope[]): Binding | undefined {
     for (let i = chain.length - 1; i >= 0; i--) {
-        const found = chain[i]?.declarations.find(d => d.name === name);
+        // A method's name sits in the scope around its class, but nothing
+        // refers to it by bare name — `score` alone is never `this.score`.
+        const found = chain[i]?.declarations.find(d => d.name === name && d.methodOf === undefined);
         if (found) return found;
     }
 
@@ -259,8 +388,15 @@ export function collectVariables(
     // leak into another file.
     pendingUses = [];
     pendingCalls = [];
+    pendingCallees = [];
+    pendingTargets = [];
     placeholderCount = 0;
     currentCallee = null;
+    classStack = [];
+    thisClass = null;
+    savedThisClasses = [];
+    nextFunctionIsMethod = false;
+    chainCache = null;
     // Same reasoning for the walk state. A balanced walk leaves both at their
     // initial value anyway; resetting means a file that threw mid-walk can't
     // hand its leftover feed target to the next one.
@@ -326,26 +462,51 @@ export function collectVariables(
  * inferred, the same as gap 18 does when the walk passes through directly.
  */
 function resolvePendingCalls(results: Results): void {
-    if (pendingCalls.length === 0) return;
+    if (pendingCalls.length === 0 && pendingCallees.length === 0 && pendingTargets.length === 0) return;
 
     const answers = new Map<number, Feed[]>();
     for (const call of pendingCalls) {
-        const callee = lookup(call.calleeName, call.chain);
-        // Imports are hoisted, so one written below the call is still its
-        // callee. Its parameters live in another file: leave the placeholder in
-        // place and queue it for gap 16's resolution in analyse.ts.
+        const { callee } = resolveSite(call.site);
+        const name = call.site.name;
+        // The callee is imported — found late or not, its parameters live in
+        // another file. Leave the placeholder in place and queue it for gap 16's
+        // resolution in analyse.ts.
         if (callee?.kind === "import") {
             results.deferredCallFeeds.push({ callee, argIndex: call.argIndex, id: call.id });
-            trace("resolve", `deferred call ${call.calleeName}(arg ${call.argIndex}) -> import, resolved across files later`);
+            trace("resolve", `call ${name}(arg ${call.argIndex}) -> import, resolved across files later`);
             continue;
         }
         const param = callee?.params?.[call.argIndex];
         answers.set(call.id, param
-            ? [{ ...feedOf(param, false), call: call.call }]
+            ? [{ ...feedOf(param, false), call: call.site.start }]
             : call.fallback.map((target) => feedOf(target, true)));
         trace("resolve", param
-            ? `deferred call ${call.calleeName}(arg ${call.argIndex}) -> param ${param.name} at offset ${param.start}`
-            : `deferred call ${call.calleeName}(arg ${call.argIndex}) -> no parameter, passes through`);
+            ? `call ${name}(arg ${call.argIndex}) -> param ${param.name} at offset ${param.start}`
+            : `call ${name}(arg ${call.argIndex}) -> no parameter, passes through`);
+    }
+
+    // `x = …` writes to whatever `x` names once every scope is complete. If it
+    // names nothing, the value goes where the enclosing expression's does.
+    for (const target of pendingTargets) {
+        const found = lookup(target.name, target.chain);
+        answers.set(target.id, found
+            ? [feedOf(found, false)]
+            : target.fallback.map((t) => feedOf(t, target.fallbackInferred)));
+    }
+
+    // The method name in `o.m(x)` is a use of whichever method the call
+    // resolved to — and of nothing at all when it didn't. Attached before the
+    // rewrite below, since its feeds can hold placeholders of their own.
+    for (const pending of pendingCallees) {
+        const { callee, external } = resolveSite(pending.site);
+        if (callee) {
+            attachUse(callee, pending.use, pending.inReturnStatement, pending.fn);
+            results.lookups.resolved++;
+        } else if (external || KNOWN_GLOBALS.has(pending.site.name)) {
+            results.lookups.external++;
+        } else {
+            results.lookups.unresolved++;
+        }
     }
 
     const expand = (fed: Feed): Feed[] => {
@@ -371,6 +532,27 @@ function resolvePendingCalls(results: Results): void {
             else delete use.feeds;      // fell back to nothing: no target, as before
         }
     }
+}
+
+/**
+ * A `let`/`const` loop variable belongs to the loop, not to the block around it.
+ * Putting it in the enclosing block was harmless while every use resolved the
+ * moment the walk reached it. Once uses resolve against finished scopes (gap 8),
+ * `f(path); for (const path of paths) {}` would read the loop's `path` — so the
+ * loop gets a scope. `var` is not block-scoped, so it keeps its old home.
+ */
+function opensScope(declaration: TSESTree.Node | null | undefined): boolean {
+    return declaration?.type === "VariableDeclaration" && declaration.kind !== "var";
+}
+
+/** A scope that only holds declarations: flow targets and the current function
+ *  pass straight through it. */
+function pushScope(name: string, stack: Scope[]): void {
+    stack.push({ name, declarations: [], savedFeedTargets: currentFeedTargets, savedFunction: currentFunction });
+}
+
+function popScope(results: Results, stack: Scope[]): void {
+    results.declarations.push(...stack.pop()!.declarations);
 }
 
 function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): void {
@@ -409,23 +591,11 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         // returning the nearest matching declared variable/function/param, or undefined if not found
         const feedNote = use.feeds ? ` (feeds ${use.feeds.map(f => f.name).join(" + ")})` : "";
 
-        const found = lookup(node.name, stack);
-        if (found) {
-            // Resolve this identifier use to its declaration if found, else mark as pending.
-            // An identifier that is a declaration is not a use (if statement checks this, if truthy,
-            // attaches the use)
-            if (node.range[0] !== found.start) {
-                trace("resolve", `${node.name} at offset ${node.range[0]} -> declaration at offset ${found.start}${feedNote}`);
-                attachUse(found, use, inReturnStatement, currentFunction);
-                results.lookups.resolved++;
-            } else {
-                trace("skip", `${node.name} at offset ${node.range[0]} is its own declaration, not a use of itself`);
-            }
-        } else {
-            // Add use to pendingUses for later resolution when declaration is found
-            trace("defer", `${node.name} at offset ${node.range[0]} — no declaration of that name in scope yet${feedNote}`);
-            pendingUses.push({ use, chain: [...stack], inReturnStatement, fn: currentFunction });
-        }
+        // Never resolved here (gap 8). A declaration further down an inner
+        // scope can still shadow the outer one this would find now, so every
+        // use waits until the walk is over and every scope is complete.
+        trace("defer", `${node.name} at offset ${node.range[0]}${feedNote}`);
+        pendingUses.push({ use, chain: chainOf(stack), inReturnStatement, fn: currentFunction });
     }
 
     // import { parse } from "acorn" — each specifier binds a local name
@@ -599,20 +769,27 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     // Note this is *not* the hoisting gap: nothing here is used before it is
     // declared in the source, only before the walker happened to reach it.
     if (node.type === "ForStatement") {
+        const scoped = opensScope(node.init);
+        if (scoped) pushScope("for", stack);
         if (node.init) walkVariables(node.init, results, stack);
         if (node.test) walkVariables(node.test, results, stack);
         if (node.update) walkVariables(node.update, results, stack);
         walkVariables(node.body, results, stack);
+        if (scoped) popScope(results, stack);
         return;
     }
 
     // for (const x of xs) / for (const k in o) — `left` declares the loop
     // variable and `right` is the iterable being read; both have to be walked
-    // before the body that uses them.
+    // before the body that uses them. `right` goes first, outside the loop's
+    // scope: in `for (const path of paths)` it is read before `path` exists.
     if (node.type === "ForOfStatement" || node.type === "ForInStatement") {
-        walkVariables(node.left, results, stack);
         walkVariables(node.right, results, stack);
+        const scoped = opensScope(node.left);
+        if (scoped) pushScope("for", stack);
+        walkVariables(node.left, results, stack);
         walkVariables(node.body, results, stack);
+        if (scoped) popScope(results, stack);
         return;
     }
 
@@ -695,7 +872,14 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             savedFeedTargets: currentFeedTargets,
             savedFeedsInferred: currentFeedsInferred,
             savedFunction: currentFunction,
+            savedThisClass: thisClass,
         });
+        // `this`: an arrow keeps the one around it; a method's is its class;
+        // any other function gets a `this` of its own, which is no class we know.
+        if (node.type !== "ArrowFunctionExpression") {
+            thisClass = nextFunctionIsMethod ? (classStack[classStack.length - 1] ?? null) : null;
+        }
+        nextFunctionIsMethod = false;
         // Clear the list of currentFeedTargets because we are now inside a new function scope,
         // so there are no flow-carrying targets to link variable uses to at this level.
         currentFeedTargets = [];
@@ -749,61 +933,26 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         }
 
         if (calleeName !== undefined) {
-            let calledFunc: Binding | undefined;
-            for (let i = stack.length - 1; i >= 0; i--) {
-                calledFunc = stack[i]?.declarations.find((d: Binding) => d.name === calleeName);
-                if (calledFunc) break;
-            }
+            // Resolved after the walk (resolvePendingCalls), never here: see
+            // CallSite. Every argument gets a placeholder target in the meantime.
+            const site: CallSite = {
+                start: node.range[0],
+                name: calleeName,
+                chain: chainOf(stack),
+                receiver: node.callee.type === "MemberExpression" ? receiverOf(node.callee.object) : undefined,
+                thisClass,
+            };
 
             let save;
             let saveInferred;
             for (let argIndex = 0; argIndex < node.arguments.length; argIndex++) {
                 save = currentFeedTargets;
                 saveInferred = currentFeedsInferred;
-                const param = calledFunc?.params?.[argIndex];
-                // A copy per call, carrying the call's position — the parameter is
-                // shared by every call to the function, the copy belongs to this one.
-                let target: Binding | undefined = param && { ...param, call: node.range[0] };
-
-                // Gap 16: the callee is imported, so the parameter to feed lives
-                // in a file that may not be parsed yet. Stand in for it with a
-                // placeholder carrying a *negative* start — no real declaration
-                // has one, since starts are byte offsets — and let analyse
-                // rewrite it once the import has been linked.
-                //
-                // The id has to travel in the placeholder's own fields rather
-                // than by object identity: `use.feeds` stores flat copies of
-                // name/file/line/start taken at stamp time (see the Identifier
-                // branch), so the placeholder object itself is gone by the time
-                // analyse runs. file+start is the same key the graph already
-                // uses for nodes, so a negative start is a key that can only
-                // mean "not resolved yet".
-                if (!param && calledFunc?.kind === "import") {
-                    // Give it a fake ID to resolve later (negative, since negative 
-                    // positions do not exist in AST)
-                    const id = -(++placeholderCount);
-                    target = {
-                        name: calleeName, kind: "param", varType: "N/A",
-                        file: currentFile, start: id, line: 0, role: "declaration", uses: [],
-                        call: node.range[0],
-                    };
-                    results.deferredCallFeeds.push({ callee: calledFunc, argIndex, id });
-                } else if (!calledFunc && node.callee.type === "Identifier") {
-                    // Gap 19: nothing by this name is in scope *yet*. It may be
-                    // declared further down, so stamp a placeholder the same way
-                    // and look again once the walk is over (resolvePendingCalls).
-                    // Plain calls only: a method call matches by name alone
-                    // (gap 1), and stretching that to later declarations would
-                    // bind `arr.map(f)` to any later local called `map`.
-                    const id = -(++placeholderCount);
-                    target = {
-                        name: calleeName, kind: "param", varType: "N/A",
-                        file: currentFile, start: id, line: 0, role: "declaration", uses: [],
-                        call: node.range[0],
-                    };
-                    pendingCalls.push({ call: node.range[0], calleeName, argIndex, id, chain: [...stack], fallback: save });
-                    trace("defer", `call ${calleeName}(arg ${argIndex}) — no declaration in scope yet`);
-                }
+                // Gaps 16 and 19 both started here as special cases: an imported
+                // callee, and one declared later. With every callee resolved
+                // after the walk, they are the general case.
+                const target = placeholder(calleeName, node.range[0]);
+                pendingCalls.push({ site, argIndex, id: target.start, fallback: save });
 
                 // Gap 18: with no parameter to feed, fall through to the enclosing
                 // target instead of dropping the argument. `x = y.replace(z)` used
@@ -815,11 +964,12 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
                 // an over-approximation: `n = arr.push(y)` returns a length, not
                 // `y`. So the stamp is marked inferred and stays separable
                 // downstream, rather than being blended into proven flow.
-                currentFeedTargets = target ? [target] : save;
+                currentFeedTargets = [target];
                 // A resolved parameter is proven flow, even when the enclosing
                 // context was itself inferred: in `unknown(known(x))` the inner
-                // `x -> param` is real regardless of the outer call.
-                currentFeedsInferred = target ? false : save.length > 0;
+                // `x -> param` is real regardless of the outer call. The fallback
+                // carries its own inferred mark, set when it is resolved.
+                currentFeedsInferred = false;
                 const arg = node.arguments[argIndex];
                 if (arg) walkVariables(arg, results, stack);   // guard: fewer args than params
                 currentFeedTargets = save;
@@ -832,11 +982,17 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             if (node.callee.type === "MemberExpression") {
                 // Walk the object part of the member expression (e.g., 'obj' in 'obj.method')
                 walkVariables(node.callee.object, results, stack);
-                // Walk the property part as well (e.g., 'method' in 'obj.method').
-                // Marked as this call's callee only now, after the object — which
-                // can hold calls of its own (`a(b).m()`) — has been walked.
-                currentCallee = { identifier: node.callee.property, call: node.range[0] };
-                walkVariables(node.callee.property, results, stack);
+                // The method name is a use too, but of whatever *method* the call
+                // resolves to — not of anything in scope that shares the name,
+                // which is how `Bun.file()` used to record a use of a local
+                // `file`. So it is built here and resolved with the call.
+                const property = node.callee.property as TSESTree.Identifier;
+                const use = makeUse(property);
+                if (currentFeedTargets.length > 0) {
+                    use.feeds = currentFeedTargets.map(t => feedOf(t, currentFeedsInferred));
+                }
+                use.call = node.range[0];
+                pendingCallees.push({ site, use, inReturnStatement, fn: currentFunction });
             } else {
                 // For non-member calls, walk the callee (could be identifier or another expression)
                 currentCallee = { identifier: node.callee, call: node.range[0] };
@@ -860,10 +1016,15 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     }
 
     // try {} catch (err) {} — the catch param (optional since ES2019)
-    if (node.type === "CatchClause" && node.param) {
-        // collectPatternNames already pushes when it comes across an identifier; no need
-        // to push additionally here. push to the stack instead of results.declarations list.
-        collectPatternNames(node.param, stack[stack.length - 1]!.declarations, "catch");
+    // The catch param is scoped to its clause. In the enclosing block it was
+    // visible before the `try` too — harmless while every use resolved as the
+    // walk reached it, wrong once uses resolve against the finished block.
+    if (node.type === "CatchClause") {
+        pushScope("catch", stack);
+        if (node.param) collectPatternNames(node.param, stack[stack.length - 1]!.declarations, "catch");
+        walkVariables(node.body, results, stack);
+        popScope(results, stack);
+        return;
     }
 
     // class Ranker {} — the class name
@@ -887,12 +1048,16 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         // declaration and record a use there.
         if (node.computed) {
             walkVariables(node.key, results, stack);
+            nextFunctionIsMethod = true;
             walkVariables(node.value, results, stack);
             return;
         }
 
         const methodBinding = makeBinding(node.key, "declaration", "function");
+        // Which class it belongs to — this is what gap 1's resolution reads.
+        methodBinding.methodOf = classStack[classStack.length - 1];
         stack[stack.length - 1]?.declarations.push(methodBinding);
+        nextFunctionIsMethod = true;
 
         const previous = currentFeedTargets; // save the old value
         const previousInferred = currentFeedsInferred;
@@ -932,11 +1097,17 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         const previousInferred = currentFeedsInferred;
 
         if (node.left.type === "Identifier") {
-            const resolvedLeftNode = lookup(node.left.name, stack);
-            currentFeedTargets = resolvedLeftNode  ? [resolvedLeftNode] : previous;
-            // Naming the write target makes this flow proven; falling back to
-            // `previous` keeps whatever qualification those targets already had.
-            if (resolvedLeftNode) currentFeedsInferred = false;
+            // Resolved after the walk, like every other name (gap 8). If it
+            // names a declaration the flow is proven; if not, it falls back to
+            // `previous` with whatever qualification those targets already had.
+            const target = placeholder(node.left.name);
+            target.kind = "variable";
+            pendingTargets.push({
+                name: node.left.name, chain: chainOf(stack), id: target.start,
+                fallback: previous, fallbackInferred: previousInferred,
+            });
+            currentFeedTargets = [target];
+            currentFeedsInferred = false;
         }
         walkVariables(node.right, results, stack);
         // Restore currentFeedTargets to its previous value after handling AssignmentExpression
@@ -1011,8 +1182,23 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     // its own for exactly that reason: nothing in it declares anything, so
     // recursing generically makes every identifier inside it a use, which is
     // the correct answer.
+    // A class's methods record which class they belong to, and inside its body
+    // `this` is that class — field initialisers and arrows included.
+    const isClass = node.type === "ClassDeclaration" || node.type === "ClassExpression";
+    if (isClass) {
+        const id = node.id ? node.id.range[0] : node.range[0];
+        classStack.push(id);
+        savedThisClasses.push(thisClass);
+        thisClass = id;
+    }
+
     for (const value of Object.values(node)) {
         walkVariables(value, results, stack);
+    }
+
+    if (isClass) {
+        classStack.pop();
+        thisClass = savedThisClasses.pop() ?? null;
     }
 
         // AFTER the Object.values loop (pop):
@@ -1026,6 +1212,7 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         currentFeedTargets = closing.savedFeedTargets ?? [];
         currentFeedsInferred = closing.savedFeedsInferred ?? false;
         currentFunction = closing.savedFunction ?? null;
+        thisClass = closing.savedThisClass ?? null;
 
         // save the top list in results
         results.declarations.push(...closing.declarations);

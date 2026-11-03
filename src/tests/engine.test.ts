@@ -698,12 +698,12 @@ test("gap 19: a later function in a scope the call can't see is not used", () =>
         .toEqual(["~z -> out"]);
 });
 
-// Deliberately not deferred: member calls resolve by name alone (gap 1), and
-// extending that to declarations further down would bind `arr.map(f)` to any
-// later local called `map`. The argument keeps gap 18's pass-through.
-test("gap 19: a method call is not deferred to a later class", () => {
-    expect(feedsWithMarks(`const z = 1; const out = r.later(z); class R { later(p) { return p } }`))
-        .not.toContain("z -> p");
+// Member calls were left out of gap 19 while they matched by name alone. Since
+// gap 1 restricted them to methods, a method declared further down is safe to
+// wait for.
+test("gap 19: a method call reaches a method declared later", () => {
+    expect(feedsWithMarks(`const r = new R(); const z = 1; const out = r.later(z); class R { later(p) { return p } }`))
+        .toContain("z -> p");
 });
 
 // Imports are hoisted, so one written below its call is still the callee. The
@@ -722,6 +722,185 @@ test("gap 19: import placeholders and later-callee placeholders stay separate", 
         "util.ts": `export function greet(name) { return name }`,
         "main.ts": `import { greet } from "./util"; const a = 1; const b = 2; greet(a); later(b); function later(p) {}`,
     })).toEqual(["a -> name", "b -> p"]);
+});
+
+// ==== Gaps 1 + 8: call-site resolution ====
+
+/** Like feedsWithMarks, but each end carries its declaration line, so two
+ *  declarations with the same name can be told apart. */
+function feedsByLine(lines: string[]): string[] {
+    const ast = parse(lines.join("\n"), { loc: true, range: true });
+    const results = collectVariables(ast as any, "/test.ts");
+    const output: string[] = [];
+    for (const decl of results.declarations) {
+        for (const use of decl.uses) {
+            for (const fed of use.feeds ?? []) {
+                output.push(`${fed.inferred ? "~" : ""}${decl.name}@${decl.line} -> ${fed.name}@${fed.line}`);
+            }
+        }
+    }
+    return output.sort();
+}
+
+// Gap 8 — a use resolved against the scopes as they stood when the walk reached
+// it, so a declaration further down an inner scope never got to shadow. An
+// inner `function` really is hoisted, so this call returns 2 and the graph said
+// it called the outer foo. All three halves — the use, the argument, and the
+// call's result — have to agree on the inner one.
+test("gap 8: a later inner function shadows an outer one, for the call and its argument", () => {
+    const edges = feedsByLine([
+        "function foo(p) { return 1 }",   // 1
+        "function f(z) {",                // 2
+        "  const a = foo(z);",            // 3
+        "  function foo(q) { return 2 }", // 4
+        "}",
+    ]);
+    expect(edges).toContain("foo@4 -> a@3");
+    expect(edges).toContain("z@2 -> q@4");
+    expect(edges).not.toContain("foo@1 -> a@3");
+    expect(edges).not.toContain("z@2 -> p@1");
+});
+
+test("gap 8: a later inner const shadows an outer one", () => {
+    expect(feedsByLine([
+        "const x = 1;",                   // 1
+        "function f() {",                 // 2
+        "  const y = x;",                 // 3
+        "  const x = 2;",                 // 4
+        "}",
+    ])).toEqual(["x@4 -> y@3"]);
+});
+
+// The write target of an assignment was the last eager lookup. Left alone, the
+// use of `x` would resolve to the inner one and the value would be written to
+// the outer — the inconsistency gap 8 was filed to avoid.
+test("gap 8: an assignment writes to the later inner declaration it names", () => {
+    const edges = feedsByLine([
+        "let x = 0;",                     // 1
+        "function f() {",                 // 2
+        "  x = foo();",                   // 3
+        "  var x;",                       // 4
+        "}",
+        "function foo() { return 1 }",    // 6
+    ]);
+    expect(edges).toContain("foo@6 -> x@4");
+    expect(edges).not.toContain("foo@6 -> x@1");
+});
+
+test("gap 8: with nothing shadowing, a use still reaches the outer declaration", () => {
+    expect(feedsByLine([
+        "const x = 1;",                   // 1
+        "function f() { const y = x }",   // 2
+    ])).toEqual(["x@1 -> y@2"]);
+});
+
+// Resolving against finished scopes exposed two declarations that were in the
+// wrong scope all along. Found on Hono: `checkOptionalParameter(path)` read the
+// `path` of the `for (const path of paths)` on the next line.
+test("gap 8: a loop variable belongs to the loop, not the block around it", () => {
+    const edges = feedsByLine([
+        "function f(path) {",                     // 1
+        "  const paths = g(path);",               // 2
+        "  for (const path of paths) { h(path) }",// 3
+        "}",
+        "function g(p) { return p }",             // 5
+        "function h(q) { return q }",             // 6
+    ]);
+    expect(edges).toContain("path@1 -> p@5");
+    expect(edges).toContain("path@3 -> q@6");
+    expect(edges).not.toContain("path@3 -> p@5");
+});
+
+test("gap 8: a catch parameter belongs to its clause", () => {
+    const edges = feedsByLine([
+        "const err = 1;",                         // 1
+        "function f() {",                         // 2
+        "  const a = err;",                       // 3
+        "  try {} catch (err) { const b = err }", // 4
+        "}",
+    ]);
+    expect(edges).toContain("err@1 -> a@3");
+    expect(edges).toContain("err@4 -> b@4");
+});
+
+test("gap 8: a `var` loop variable is still visible after the loop", () => {
+    expect(feedsByLine([
+        "for (var i = 0; i < 3; i++) {}",         // 1
+        "const last = i;",                        // 2
+    ])).toContain("i@1 -> last@2");
+});
+
+// Gap 1 — member calls matched any declaration in scope with the property's
+// name. Bun.file() bound to a local function called `file`, and `p` was said to
+// reach its parameter.
+test("gap 1: a call on an undeclared global is external, not a local function", () => {
+    const edges = feedsWithMarks(`function file(n) { return n } const p = "x"; const out = Bun.file(p);`);
+    expect(edges).not.toContain("p -> n");
+    expect(edges).not.toContain("file -> out");
+    expect(edges).toContain("~p -> out");
+});
+
+test("gap 1: any undeclared receiver is external", () => {
+    expect(feedsWithMarks(`class R { score(p) { return p } } const z = 1; const out = window.score(z);`))
+        .not.toContain("z -> p");
+});
+
+// Methods land in the scope around their class, which is what lets `r.score()`
+// find them — and what let a bare `score()` find them too.
+test("gap 1: a bare call never resolves to a method", () => {
+    expect(feedsWithMarks(`class R { score(p) { return p } } const z = 1; const out = score(z);`))
+        .not.toContain("z -> p");
+});
+
+test("gap 1: this.m() resolves to the enclosing class's method", () => {
+    expect(feedsByLine([
+        "class A { run(p) { return p } go(x) { return this.run(x) } }",  // 1
+        "class B { run(q) { return q } }",                                 // 2
+    ])).toContain("x@1 -> p@1");
+});
+
+test("gap 1: this.m() reaches a method declared later in the class", () => {
+    expect(feedsWithMarks(`class A { go(x) { return this.later(x) } later(p) { return p } }`))
+        .toContain("x -> p");
+});
+
+// `this` inside a plain function is not the class instance; inside an arrow it
+// is. With two classes defining `run`, only the `this` rule could pick one.
+test("gap 1: `this` in a nested function is not the class, in an arrow it is", () => {
+    const plain = feedsWithMarks(
+        `class A { run(p) { return p } go(x) { function inner() { return this.run(x) } } } class B { run(q) { return q } }`);
+    expect(plain).not.toContain("x -> p");
+    expect(plain).not.toContain("x -> q");
+    const arrow = feedsWithMarks(
+        `class A { run(p) { return p } go(x) { const inner = () => this.run(x) } } class B { run(q) { return q } }`);
+    expect(arrow).toContain("x -> p");
+});
+
+test("gap 1: C.m() on a local class resolves to that class's method", () => {
+    const edges = feedsWithMarks(
+        `class C { static make(p) { return p } } class D { make(q) { return q } } const z = 1; const out = C.make(z);`);
+    expect(edges).toContain("z -> p");
+    expect(edges).not.toContain("z -> q");
+});
+
+// Without types there is no telling which class `r` holds, so two candidates
+// means neither: a missing edge rather than a coin flip.
+test("gap 1: two methods with the same name leave an unknown receiver unresolved", () => {
+    const edges = feedsWithMarks(
+        `class A { score(p) { return p } } class B { score(q) { return q } } const r = make(); const z = 1; const out = r.score(z);`);
+    expect(edges).not.toContain("z -> p");
+    expect(edges).not.toContain("z -> q");
+    expect(edges).toContain("~z -> out");
+});
+
+// `xs.map(fn)` and `list.map(fn)` look identical without types. When a project
+// method shares its name with a built-in one, an unknown receiver could be
+// either, so it is left unresolved.
+test("gap 1: a method sharing a built-in method's name needs a known receiver", () => {
+    const edges = feedsWithMarks(`class List { map(f) { return f } } const xs = [1]; const fn = 1; const out = xs.map(fn);`);
+    expect(edges).not.toContain("fn -> f");
+    expect(feedsWithMarks(`class List { map(f) { return f } go(fn) { return this.map(fn) } }`))
+        .toContain("fn -> f");
 });
 
 // ==== Gaps 21 + 22: re-export chains and tsconfig `paths` aliases ====
@@ -1038,8 +1217,4 @@ test("gap 22: a malformed tsconfig means no aliases, not a crash", async () => {
 //
 // Gap 7 (imports assume `.ts`) is cross-file — see the note above.
 //
-// Gap 8 (a use resolves to an outer declaration that a later inner one
-// shadows) is testable in principle, but a test written now would pin the
-// *wrong* answer. `useCounts` counts by name, and both declarations are called
-// `x`, so distinguishing them needs an assertion on `start` offsets. Write it
-// with the fix, not before.
+// Gap 8 has its tests now — see "Gaps 1 + 8" above.
