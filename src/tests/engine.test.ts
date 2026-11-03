@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { parse } from "@typescript-eslint/typescript-estree"
 import { collectVariables } from '../scripts/engine';
-import { isProjectSource, allowsJsx, analyse, resolveImport } from '../scripts/analyse';
+import { isProjectSource, allowsJsx, analyse, resolveImport, aliasCandidates, parseJsonc } from '../scripts/analyse';
 import { tmpdir } from 'os';
 import { rm } from 'fs/promises';
 
@@ -634,6 +634,313 @@ test("gap 18: the inferred flag does not leak past the call that set it", () => 
     expect(marks).toContain("~q -> a");
     expect(marks).toContain("r -> b");
     expect(marks).not.toContain("~r -> b");
+});
+
+// ==== Gaps 21 + 22: re-export chains and tsconfig `paths` aliases ====
+
+// Both gaps are cross-file and both fail as silence, so every test goes through
+// `analyse` and most of them assert on `imports` as well as on edges: an
+// unlinked import has to land in the right bucket, or the counter that is
+// supposed to make missing edges visible goes blind again — which is exactly
+// what gap 22 found it doing.
+async function linkFixture(files: Record<string, string>) {
+    const dir = await fixtureDir(files);
+    const { graph, imports, unlinkedImports } = await analyse(dir);
+    const nameById = new Map(graph.nodes.map((n) => [n.id, n.name]));
+    const edges = graph.edges.map((e) => `${nameById.get(e.source)} -> ${nameById.get(e.target)}`).sort();
+    await rm(dir, { recursive: true, force: true });
+    return { edges, imports, unlinkedImports };
+}
+
+// Gap 21 — a barrel has no declaration of the name it publishes, so the old
+// one-hop lookup ("is `greet` declared in index.ts?") could never succeed.
+// On excalidraw that was 2,459 of 5,892 value import specifiers.
+
+const greetModule = `export function greet(name) { return name }`;
+const greetCaller = (from: string, local = "greet") =>
+    `import { ${local} } from "${from}"; const who = "ada"; const out = ${local}(who);`;
+
+test("gap 21: an import through `export * from` reaches the declaration", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+    expect(imports.noDeclaration).toBe(0);
+});
+
+test("gap 21: an import through `export { x } from` reaches the declaration", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export { greet } from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+});
+
+// The barrel publishes `hello`; the source module knows it as `greet`. Asking
+// the next hop for `hello` would find nothing.
+test("gap 21: a renaming re-export asks the source for its own name", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export { greet as hello } from "./greet";`,
+        "main.ts": greetCaller("./lib", "hello"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+});
+
+test("gap 21: import-then-export is followed like a re-export", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `import { greet } from "./greet"; export { greet };`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 21: a chain of barrels is followed to the end", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/deep/greet.ts": greetModule,
+        "lib/deep/index.ts": `export * from "./greet";`,
+        "lib/index.ts": `export { greet } from "./deep";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+});
+
+// `export *` searches every star source in turn, so the name has to be found
+// in the second one even though the first has nothing by that name.
+test("gap 21: a name is searched for across every `export *` source", async () => {
+    const { edges } = await linkFixture({
+        "lib/other.ts": `export const unrelated = 1;`,
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * from "./other";\nexport * from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 21: `export { default as X } from` reaches a named default export", async () => {
+    const { edges } = await linkFixture({
+        "lib/widget.ts": `export default function render(props) { return props }`,
+        "lib/index.ts": `export { default as Widget } from "./widget";`,
+        "main.ts": `import { Widget } from "./lib"; const p = 1; const out = Widget(p);`,
+    });
+    expect(edges).toEqual(["p -> props", "render -> out"]);
+});
+
+test("gap 21: a default import links to a differently named default export", async () => {
+    const { edges } = await linkFixture({
+        "widget.ts": `export default function render(props) { return props }`,
+        "main.ts": `import foo from "./widget"; const p = 1; const out = foo(p);`,
+    });
+    expect(edges).toEqual(["p -> props", "render -> out"]);
+});
+
+// Two barrels that `export *` each other are ordinary in real projects. Without
+// the visited set the walk recurses forever; with it, a name neither module has
+// comes back as an honest miss.
+test("gap 21: an `export *` cycle terminates and reports the miss", async () => {
+    const { edges, imports, unlinkedImports } = await linkFixture({
+        "a.ts": `export * from "./b";`,
+        "b.ts": `export * from "./a";`,
+        "main.ts": `import { ghost } from "./a"; const x = ghost;`,
+    });
+    expect(edges).toEqual([]);
+    expect(imports.noDeclaration).toBe(1);
+    expect(unlinkedImports).toBe(1);
+});
+
+// `export * as ns` republishes the module as one namespace object, not its
+// names. Searching through it for `greet` would invent a link the source
+// never offered.
+test("gap 21: `export * as ns` is not searched for arbitrary names", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * as tools from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).not.toContain("who -> name");
+    expect(imports.noDeclaration).toBe(1);
+});
+
+// The case the old counter scored as a success: the file resolved, so
+// `!resolvedSource` never fired. It is a different failure from a missing
+// file, and it has to be counted as one.
+test("gap 21: a resolved file without the name counts as noDeclaration, not noFile", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "lib/index.ts": `export const other = 1;`,
+        "main.ts": `import { missing } from "./lib"; const x = missing;`,
+    });
+    expect(imports.noDeclaration).toBe(1);
+    expect(imports.noFile).toBe(0);
+    expect(unlinkedImports).toBe(1);
+});
+
+test("gap 21: type-only and namespace imports are excluded rather than failed", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "lib.ts": `export type T = number; export const v = 1;`,
+        "main.ts": `import type { T } from "./lib"; import * as ns from "./lib"; const x = ns;`,
+    });
+    expect(imports.typeOnly).toBe(1);
+    expect(imports.namespace).toBe(1);
+    expect(unlinkedImports).toBe(0);
+});
+
+// Gap 22 — a tsconfig `paths` alias doesn't start with ".", so it was read as a
+// package, skipped, and not even counted as unlinked. 1,209 of excalidraw's
+// ~3,700 in-project imports were `@excalidraw/*`.
+
+// The matcher is pure, so its rules are pinned without a fixture.
+test("gap 22: an exact alias pattern expands against baseUrl", () => {
+    expect(aliasCandidates("@pkg", { baseUrl: "/p", paths: { "@pkg": ["./pkg/index.ts"] } }))
+        .toEqual(["/p/pkg/index.ts"]);
+});
+
+test("gap 22: a wildcard alias substitutes the matched segment", () => {
+    expect(aliasCandidates("@app/util/x", { baseUrl: "/p", paths: { "@app/*": ["src/*"] } }))
+        .toEqual(["/p/src/util/x"]);
+});
+
+test("gap 22: the longest matching prefix wins", () => {
+    const config = { baseUrl: "/p", paths: { "@/*": ["src/*"], "@/core/*": ["core/*"] } };
+    expect(aliasCandidates("@/core/thing", config)).toEqual(["/p/core/thing"]);
+    expect(aliasCandidates("@/other", config)).toEqual(["/p/src/other"]);
+});
+
+test("gap 22: an exact match beats a wildcard that also matches", () => {
+    const config = { baseUrl: "/p", paths: { "@pkg/*": ["wild/*"], "@pkg/main": ["exact.ts"] } };
+    expect(aliasCandidates("@pkg/main", config)).toEqual(["/p/exact.ts"]);
+});
+
+test("gap 22: a fallback list keeps the config's order", () => {
+    expect(aliasCandidates("@x/a", { baseUrl: "/p", paths: { "@x/*": ["one/*", "two/*"] } }))
+        .toEqual(["/p/one/a", "/p/two/a"]);
+});
+
+test("gap 22: a specifier no pattern matches has no candidates", () => {
+    expect(aliasCandidates("zod", { baseUrl: "/p", paths: { "@app/*": ["src/*"] } })).toEqual([]);
+});
+
+test("gap 22: tsconfig comments and trailing commas parse", () => {
+    expect(parseJsonc(`{ // c\n "a": "http://x", /* b */ "b": [1, 2,], }`))
+        .toEqual({ a: "http://x", b: [1, 2] });
+});
+
+// End to end. The pairing NOTES calls out: an alias that lands on a barrel only
+// pays off when gap 21 then follows the barrel.
+test("gap 22: an alias onto a barrel links through to the declaration", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@pkg": ["./pkg/src/index.ts"] } } }`,
+        "pkg/src/greet.ts": greetModule,
+        "pkg/src/index.ts": `export * from "./greet";`,
+        "app/main.ts": greetCaller("@pkg"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+    expect(imports.external).toBe(0);
+});
+
+test("gap 22: a wildcard alias resolves extensionless and directory targets", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }`,
+        "src/greet.ts": greetModule,
+        "src/util/index.ts": `export const sep = "/";`,
+        "main.ts": `${greetCaller("@app/greet")}\nimport { sep } from "@app/util"; const s = sep;`,
+    });
+    expect(edges).toEqual(["greet -> out", "sep -> s", "who -> name"]);
+});
+
+// Legal since TS 4.1: targets are then relative to the tsconfig itself.
+test("gap 22: paths without baseUrl resolve relative to the tsconfig", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "paths": { "@g": ["./lib/greet.ts"] } } }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+// The base is pinned to the file that declares it, not to the child config.
+test("gap 22: paths inherited through `extends` resolve against the parent", async () => {
+    const { edges } = await linkFixture({
+        "config/tsconfig.json": `{ "compilerOptions": { "baseUrl": "..", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./config/tsconfig.json" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+// `extends` names a file. Resolving it to its directory and searching that for
+// tsconfig.json threw the name away, so `tsconfig.base.json` — the usual
+// monorepo spelling — was never read and its aliases fell back to `external`:
+// the same silence gap 22 exists to remove.
+test("gap 22: `extends` to a config not named tsconfig.json is read", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.base.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base.json" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.external).toBe(0);
+});
+
+test("gap 22: an extensionless `extends` finds the .json file", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.base.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 22: an `extends` cycle terminates and keeps the child's own paths", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.base.json": `{ "extends": "./tsconfig.json" }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base.json", "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 22: the first fallback target that exists is the one used", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@x/*": ["missing/*", "real/*"] } } }`,
+        "real/greet.ts": greetModule,
+        "main.ts": greetCaller("@x/greet"),
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.noFile).toBe(0);
+});
+
+// The half NOTES calls worse than the missing edges: an alias that matched but
+// points at nothing is an in-project failure, and it has to be counted as one
+// rather than waved through as a dependency.
+test("gap 22: an alias with no real target counts as unlinked, not external", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }`,
+        "main.ts": `import { gone } from "@app/gone"; import { z } from "zod"; const x = gone; const y = z;`,
+    });
+    expect(imports.noFile).toBe(1);
+    expect(imports.external).toBe(1);
+    expect(unlinkedImports).toBe(1);
+});
+
+test("gap 22: a malformed tsconfig means no aliases, not a crash", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "paths": `,
+        "lib.ts": greetModule,
+        "main.ts": `${greetCaller("./lib")}\nimport { z } from "@pkg";`,
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.external).toBe(1);
 });
 
  // ==== Untested gaps ====
