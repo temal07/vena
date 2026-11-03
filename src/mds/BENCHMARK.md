@@ -114,12 +114,12 @@ Result: `options`@33. **✅**
 
 ## Scorecard
 
-| | run 1 (before gap 18) | run 2 (after gap 18) |
-| --- | --- | --- |
-| ✅ correct | 11 / 20 | **15 / 20** |
-| ⚠️ partial | 3 | 3 |
-| ❌ missing | 6 | **2** |
-| **wrong** | **0** | **0 proven / see note** |
+| | run 1 (before gap 18) | run 2 (after gap 18) | run 3 (after gaps 19 + 23) |
+| --- | --- | --- | --- |
+| ✅ correct | 11 / 20 | 15 / 20 | **19 / 20** |
+| ⚠️ partial | 3 | 3 | **0** |
+| ❌ missing | 6 | 2 | **1** |
+| **wrong** | **0** | **0 proven / see note** | **0** |
 
 > The first draft of this file reported run 1 as 10/4/6. That was an arithmetic slip in the
 > summary — the per-question verdicts below have always been 11 ✅, 3 ⚠️, 6 ❌. Corrected here.
@@ -157,6 +157,25 @@ The `Request` parameter reaches the parsed credentials, across two files and fiv
 - ❌ Q18 — gap 19
 
 Gap 19 is now the whole of the remaining shortfall except one question. That is the next thing to fix, and this file predicts it moves four answers.
+
+### Run 3 — after gaps 19 and 23 (November 2026)
+
+**The prediction held: all four moved.** Q5, Q7 and Q14 went ⚠️ → ✅ and Q18 went ❌ → ✅. Score **19 / 0 / 1**; the only miss left is Q9, which is gap 20.
+
+| | before | after |
+| --- | --- | --- |
+| Q5 — what feeds `hash`@17 | `createHash` and its return, not the arguments | `createHash`@33, and through it `data`@15 and `algorithm`@16 — and *not* `sha1`'s or `md5`'s |
+| Q7 — what `str`@6 reaches | the return out to `jws.ts`/`jwt.ts` only | also `decodeBase64`'s `str`@25 → `binary`@26 → `bytes`@27 |
+| Q14 — what feeds `buf`@15 | external callers only | also `encodeBase64Url`'s `buf`@10, the intra-file call at line 11 |
+| Q18 — what feeds `algorithm`@33 | none of the three | all three: @16, @22, @28 |
+
+**It did not hold on the first attempt, and that is the useful part.** Gap 19 alone broke negative control **Q17**: with `createHash` finally receiving its arguments, `sha1`'s `data` traced in through `sha1`'s call and back out to `sha256`'s `hash`. Every edge on that path was real; the path was not, because the query layer returned to *every* caller of a function rather than the one the value came through. Q5 showed the same thing as a superset (`data`@21 and @27). Filed and fixed as gap 23 in NOTES.md — calls are now matched by position — and Q17 holds again, along with Q15 and Q16.
+
+Without the negative controls this would have shipped as "four answers fixed" with a false positive inside one of them. That is the case for keeping questions whose answer is *no*.
+
+**Every other answer re-checked keeps its full ground truth** (Q1–Q4, Q6, Q8, Q10–Q13, Q19, Q20). Several got *smaller*: Q1's backward trace drops 33 nodes it reached only through impossible call/return pairings, e.g. into `buildMiddlewareTuple` through one call and out through another.
+
+Method note: run on a fresh Hono clone rather than the August one, so whole-graph numbers (11,145 edges, all 313 files) are not comparable with run 2's. The line numbers of every question above were checked against the new checkout before scoring.
 
 ### The headline is the zero
 

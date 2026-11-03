@@ -10,21 +10,20 @@ This is the project-level picture. [`NOTES.md`](NOTES.md) holds the detail: ever
 
 - **Multi-file extraction.** vena scans the working directory for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs` files and records every declaration: variables, functions, parameters, classes, methods, catch parameters, imports and TypeScript types, including destructuring patterns. JSX is parsed in every extension except `.ts`. Minified bundles, `.d.ts` files and vendored directories are excluded.
 - **Survives foreign code.** A file that fails to parse is skipped and reported, and the rest of the project is still analysed.
-- **Scope resolution, including forward references.** A scope stack keeps same-named bindings distinct. A use reached before its declaration is retried after the walk, so hoisted functions and later `const`s still resolve.
+- **Scope resolution, including forward references.** A scope stack keeps same-named bindings distinct. A use or call reached before its declaration is retried after the walk, so hoisted functions and later `const`s still resolve and still receive their arguments.
 - **Data-flow edges.** These come from initializers, reassignment, argument → parameter at call sites (including methods, matched by name), and return → call site. Together they give full interprocedural chains: `z → p → return → a`.
 - **Inferred flow through unknown calls.** An argument to a callee vena can't resolve is assumed to flow into the result. These edges are labelled `inferred` and kept separate from proven ones.
 - **Cross-file linking.** Linking follows relative imports (extensionless, directory, `.js` → `.ts`), tsconfig `paths` aliases, and re-export chains (`export *`, `export { x } from`, renames, defaults). Arguments to imported functions reach the parameter in the declaring file.
 - **Visible failure.** Skipped files, unlinked imports (bucketed by cause), unresolved lookups and the proven/inferred edge split are all reported. A missing edge is never silent.
-- **Query layer.** `vena-trace` traces any node forward ("where does it end up?") or backward ("where did it come from?"). It accepts a `file:line` or `file:name` address, with depth and size bounds, and a `--strict` mode that follows proven edges only.
-- **Tests.** 134 tests run with `bun test`, covering the walker on source strings and `analyse` end to end on temporary projects.
+- **Query layer.** `vena-trace` traces any node forward ("where does it end up?") or backward ("where did it come from?"). A value that enters a function through one call returns only through that call. It accepts a `file:line` or `file:name` address, with depth and size bounds, and a `--strict` mode that follows proven edges only.
+- **Tests.** 157 tests run with `bun test`, covering the walker on source strings and `analyse` end to end on temporary projects.
 
 ### Next
 
 In order, per `NOTES.md` → *Next up*:
 
-1. **Callee forward references (gap 19).** A call to a function declared later in the same file doesn't wire its arguments to the parameters.
-2. **Call-site resolution (gaps 1 + 8).** Method calls ignore their receiver, and a later inner declaration doesn't shadow. These are the only known source of wrong edges.
-3. **MCP server.** It exposes bounded traversals to agents. It needs an on-disk index, because a large graph is too big to `JSON.parse` per query.
+1. **Call-site resolution (gaps 1 + 8).** Method calls ignore their receiver, and a later inner declaration doesn't shadow. These are the only known source of wrong edges.
+2. **MCP server.** It exposes bounded traversals to agents. It needs an on-disk index, because a large graph is too big to `JSON.parse` per query.
 
 ### Future goals
 
@@ -92,6 +91,14 @@ A use inside a `return` statement is recorded in the enclosing function's `retur
 
 When the callee is an import, its parameters live in another file that may not be parsed yet. The walker therefore stamps each argument with a **placeholder** feed whose start is negative, and records the call in `deferredCallFeeds`. The placeholder is a copy rather than a reference, because `use.feeds` holds flat copies taken when the feed is stamped. Analysis step 2b replaces each placeholder once the import has linked. A placeholder that never resolves keeps its negative start, matches no node, and is dropped in step 4. **The failure mode is a missing edge, never a wrong one.**
 
+### Later callees
+
+A plain call whose callee isn't in scope yet gets the same treatment: each argument is stamped with a negative-start placeholder, and the call is filed with a snapshot of the scope chain and the targets the argument would otherwise have fed. After the walk the callee is looked up again. A parameter at that position replaces the placeholder (proven). No callee, or no such parameter, falls back to the saved targets (inferred), which is what the walk would have done anyway. A callee that turns out to be an import is handed to the cross-file resolution above. Method calls are not deferred, because they match by name only and a later local of the same name would be the wrong function.
+
+### Call positions
+
+Two kinds of use record the start offset of the call they belong to. An argument's feed into a parameter records the call it enters, and the callee identifier records the call whose result it carries. Each `returns` entry also says whether the name is returned directly (`return v`) or as a call result (`return f(x)`). The query layer uses these to keep each value inside the call it came through.
+
 ### Exports
 
 The walker records what each file publishes:
@@ -146,12 +153,14 @@ The cross-file linkage rate is `linked / (linked + noFile + noDeclaration)`. `un
 
 ## Query layer (`query.ts`)
 
-`indexGraph` builds four lookups: node by id, outgoing edges, incoming edges, and a reverse map of `returns` (from a declaration to the functions that return it).
+`indexGraph` builds five lookups: node by id, outgoing edges, incoming edges, a reverse map of `returns` (from a declaration to the functions that return it), and the function that owns each parameter.
 
 `traverse` walks one direction, with a visited set, depth and size bounds, and an optional proven-only mode. The interprocedural hop works differently in each direction:
 
 - **Forward** arrives holding a declaration. It uses the reverse `returns` map to hop to each function that returns it, then follows that function's outgoing edges to its call sites.
 - **Backward** arrives holding a function and reads `returns` straight off the node.
+
+Both directions match calls. The trace keeps a stack of the calls it is inside. Forward, an argument entering a parameter pushes that call, and leaving through a return pops it and follows only that call's result. Backward mirrors this: entering a function's returns through a call's result pushes the call, and its parameters then take only the arguments at that call. An empty stack means the trace started inside the function, so every caller counts. Recursion doesn't push the same call twice, and past 8 levels the outermost call is forgotten, which falls back to every caller at that level.
 
 `resolveTarget` accepts the same address format the output prints (`file:line`, `file:name`, or a bare name). An ambiguous address lists its candidates in a form that can be pasted straight back.
 
@@ -161,10 +170,10 @@ These are exported pure functions, and the CLI is a thin `main` behind `import.m
 
 Each has a reproducing snippet in `NOTES.md`.
 
-- **Gap 19.** Callee lookup is eager, so a function declared later in the same file gets no argument → parameter edges.
 - **Gaps 1 + 8.** Method calls resolve by name only and ignore the receiver. A later inner declaration doesn't shadow an earlier outer one. Together these are the only known source of wrong edges.
 - **Gap 20.** Object fields carry no flow: `this.x = y` and reads of `this.x` produce nothing.
 - **Inferred edges over-approximate.** `n = arr.push(y)` infers `y → n`. These edges are labelled, and `--strict` excludes them.
 - **No versioning.** Variables aren't versioned, so an overwritten value still appears to reach later reads.
 - **Imports not yet handled.** Namespace imports (`ns.foo`) and package `extends` in tsconfig.
 - **Assignments not yet handled.** Destructuring assignment (`[a, b] = foo()`).
+- **Call matching is bounded.** Past 8 nested calls a trace forgets the outermost one and may return to any of its callers there.

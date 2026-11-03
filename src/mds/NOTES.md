@@ -20,7 +20,8 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Object field flow (`this.x = y`)             | ❌ Not tracked at all — see gap 20         |
 | Graph output (`vena`, writes `graph.json`)   | ✅ Done — viewer removed November 2026     |
 | Query/traversal layer (`query <target>`)     | ✅ Forward + backward, addressable, bounded |
-| Forward references                           | ✅ For uses (gap 2) — ❌ for callees (gap 19) |
+| Forward references                           | ✅ For uses (gap 2) and callees (gap 19)    |
+| Call-matched traces                          | ✅ A value returns only to the call it entered — gap 23 |
 | Reassignment (`x = foo()`)                   | ✅ Done — not destructuring, see gap 5     |
 | Method-call resolution                       | ⚠️ Name-only — 0.4% ambiguous live, gap 1  |
 | Resolution reporting (`Results.lookups`)     | ⚠️ Counts, but globals list is thin        |
@@ -29,9 +30,9 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Runs on a *large* repo                       | ✅ 8,144 files, 0 parse failures, 23 s — but 1.2 GB graph |
 | Answer size at scale                         | ✅ p90 = 10 nodes, flat from 309 to 8,144 files |
 | JSX / `.tsx` support                         | ✅ Done — `.ts` stays non-JSX, see gap 13  |
-| Automated tests                              | ⏳ Partial — 134 tests across 2 files      |
-| Answers real questions end to end            | ⚠️ 15/20 on Hono, **0 wrong** — degrades on modular repos, BENCHMARK.md |
-| MCP wrapper                                  | ⏳ Planned — see item 3 in Next up         |
+| Automated tests                              | ⏳ Partial — 157 tests across 2 files      |
+| Answers real questions end to end            | ✅ 19/20 on Hono, **0 wrong** — only Q9 (gap 20) left; modular repos not re-scored, BENCHMARK.md |
+| MCP wrapper                                  | ⏳ Planned — see item 2 in Next up         |
 
 
 ---
@@ -593,7 +594,7 @@ Nine tests in `engine.test.ts`, four of which fail without the fix. The other fi
 
 ---
 
-### 19. Callee lookup can't see declarations that come later in the file
+### 19. Callee lookup can't see declarations that come later in the file — ✅ RESOLVED November 2026
 
 Distinct from gap 2, which fixed forward references for **uses** by retrying unresolved lookups after the walk. `CallExpression` still resolves its callee **eagerly**, off the scope stack, at the moment it is walked. A module-level `const` declared further down the file is not on that stack yet, so `calledFunc` is `undefined` and the arguments never wire to the parameters.
 
@@ -621,6 +622,20 @@ Regex-derived, so approximate in both directions; it is here to rank the cause, 
 Live example on excalidraw: `avoidRectangularCorner` is called at `binding.ts:1500` and declared at `binding.ts:1616`. `vena-trace element/src/binding.ts:1618 --back` returns the header line and nothing else; `grep` finds the call site in 0.03 s.
 
 Accounts for Q5, Q14 and Q18 in BENCHMARK.md. Likely fix: a hoisting pre-pass collecting module-level declarations before the walk, or deferring callee resolution the way gap 2 defers uses.
+
+**Fixed by deferring, not by a pre-pass** — gap 2's mechanism applied to the one lookup that was still eager. When a plain call's callee isn't in scope, each argument is stamped with a placeholder feed (a negative start, the same trick as gap 16) and the call is filed as a `PendingCall`: callee name, argument index, a shallow snapshot of the scope chain, and the targets the argument would have fed without the deferral. After the walk, `resolvePendingCalls` looks the callee up again through the snapshot:
+
+- **found, with a parameter at that index** → the placeholder becomes that parameter, proven
+- **not found, or no such parameter** → the placeholder becomes the saved targets, inferred — exactly gap 18's pass-through, so a call that was never going to resolve behaves as it always did
+- **found, and it's an import** (imports are hoisted, so one can sit below its call) → handed to gap 16's cross-file resolution under the same placeholder id
+
+Placeholders can nest — in `later(unknown(z))` both calls defer, and `z`'s placeholder falls back onto `later`'s — so answers are collected first and expanded recursively. That can't cycle: a fallback is captured before its own call's placeholder exists. Gap 16 and gap 19 placeholders share one counter, because both live in the same `use.feeds` and a collision would rewrite one call's argument onto another's parameter.
+
+**Plain calls only.** `obj.m(x)` is not deferred: method calls match by name alone (gap 1), and stretching that to later declarations would bind `arr.map(f)` to any later local named `map` — a wrong edge, where the rest of this change only adds right ones.
+
+**Measured on Hono** (fresh clone, November 2026, all 313 files): 11,095 → 11,145 edges. **+126 proven, −76 inferred**: the 76 were pass-throughs that now reach the real parameter. Zero proven edges lost, zero new inferred edges. The prediction held: Q5, Q7, Q14 and Q18 all moved — but only once gap 23 was fixed alongside, because the new edges broke negative control Q17 first.
+
+Twelve tests in `engine.test.ts`; nine fail without the fix, three guard what must not change (unresolvable names, scoping of the retry, method calls).
 
 ---
 
@@ -718,13 +733,42 @@ Seventeen tests in `engine.test.ts`.
 
 ---
 
+### 23. A trace returned to every caller, not the one it came in through — ✅ RESOLVED November 2026
+
+Found by fixing gap 19. `query.ts` followed a value into a function through one call and back out through *every* call, because nothing recorded which one it had entered:
+
+```ts
+// utils/crypto.ts
+const sha256 = async (data) => { const hash = await createHash(data, algorithm); … }   // :17
+const sha1   = async (data) => { const hash = await createHash(data, algorithm); … }   // :23
+// forward from sha1's data: -> createHash's data -> … -> returned by createHash -> sha256's hash
+```
+
+Every edge on that path is real; the path isn't. This was always true — Q1 had already picked up callers it shouldn't via the same hop — but negative control Q17 only held because `createHash` received no arguments at all. Gap 19 gave it its arguments and Q17 broke.
+
+**Calls are identified by position, not line.** Matching on line numbers was tried first and failed twice: a call split across lines puts the argument and the callee on different lines, and `return inner(p)` has no edge at that line at all. So:
+
+- engine.ts stamps the call expression's start offset on two kinds of use. An argument's feed into a parameter gets `call` (from a per-call copy of the parameter target), and a callee identifier gets `use.call`.
+- analyse.ts carries them onto edge occurrences as `argOf` and `resultOf`. One edge can be both — `inner -> p` in `outer(inner(a))` leaves inner's call and enters outer's.
+- `returns` entries now say *how* a name is returned: `direct` (`return v`) or `calls` (`return f(x)` returns that call's result, not `f`). Without that, `return down(n - 1)` let a value leave the outer call and then leave again, to every caller.
+
+`traverse` keeps a stack of the calls it is inside. Forward, an argument entering a parameter pushes; a return pops and keeps only that call's result. Backward mirrors it. An empty stack means the trace started inside the function, so every caller is a legitimate way out. A write to a parameter inside the body (`p = normalise(p)`) has no `argOf` and stays in the current call.
+
+**Bounded, because recursion found the first version unbounded.** Every recursive pass was a new context, so nothing was ever "visited" — only the depth limit stopped it, and a large `--depth` overflowed the stack. Re-entering a call already on the stack doesn't push again, and past `MAX_CALL_DEPTH` (8) the outermost call is forgotten, which falls back to every caller at that level.
+
+**Verified on Hono, 6,538 traces, no depth limit:** the new reach set is a subset of the old one in every case. 631 traces shrank; mean reach fell 11.8 → 6.1 nodes. The one dropped path inspected by hand was unrealisable (into `buildMiddlewareTuple` through one call, out through another). All twelve other benchmark answers re-checked keep their full ground truth. `graph.json` grows ~1%. A graph written before these fields existed traces exactly as it did.
+
+Eleven tests in `query.test.ts`; six fail on the old traversal.
+
+---
+
 ## Benchmark
 
 ### #1 — twenty questions over Hono
 
 `src/mds/BENCHMARK.md`, August 17 2026 — twenty data-flow questions over Hono, ground truth hand-derived from source *before* any query was run.
 
-**Run 1: 11 ✅ / 3 ⚠️ / 6 ❌. Run 2, after gap 18: 15 ✅ / 3 ⚠️ / 2 ❌ — and 0 wrong in both.** No answer contained an edge that isn't real; all three negative controls held; every ⚠️ is a strict subset of the truth. Every failure is a missing edge.
+**Run 1: 11 ✅ / 3 ⚠️ / 6 ❌. Run 2, after gap 18: 15 ✅ / 3 ⚠️ / 2 ❌. Run 3, after gaps 19 and 23 (November 2026): 19 ✅ / 0 ⚠️ / 1 ❌ — and 0 wrong in all three.** No answer contained an edge that isn't real; all three negative controls held; every ⚠️ is a strict subset of the truth. Every failure is a missing edge.
 
 Nine of the ten imperfect answers attribute to three causes — gap 18 (five), gap 19 (three), gap 20 (one). None of them is visible in any internal metric: `unlinkedImports` is 0, `skipped` is 0, resolution is 91.2%.
 
@@ -800,7 +844,7 @@ None of it is engine accuracy.
 
 Gaps 19 and 20, call-site resolution, extending `KNOWN_GLOBALS`, splitting `engine.ts`, reaching 20/20.
 
-If exactly one accuracy fix goes in first, make it **gap 19**: cheapest remaining, adds only correct edges, and BENCHMARK.md predicts 15/20 → 19/20.
+If exactly one accuracy fix goes in first, make it **gap 19**: cheapest remaining, adds only correct edges, and BENCHMARK.md predicts 15/20 → 19/20. *(Done November 2026, with gap 23 — the prediction held at 19/20.)*
 
 ---
 
@@ -842,16 +886,15 @@ So the hypothesis under test is *"fewer tool calls for the same answer"*, not *"
 
 The lesson worth carrying, third version: ranked by resolution rate → call-site resolution was first. Ranked by benchmark failures → it fell to third. Ranked across repo *shapes* → the top two items are gaps 21 and 22, which cost nothing at all on hono and half the cross-file graph on a monorepo. **Each reranking came from widening what was being measured, never from measuring the same thing harder.**
 
-Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20. Gaps 21 + 22 came off it in November 2026; re-measuring excalidraw's linkage is what will say whether they moved the 44%.
+Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20. Gaps 21 + 22 came off it in November 2026; re-measuring excalidraw's linkage is what will say whether they moved the 44%. Gap 19 followed, with gap 23 — which it surfaced — fixed alongside; the benchmark is at 19/20, and the one miss left is gap 20.
 
-1. **Gap 19 — callee lookup can't see later declarations.** Now the whole of the remaining benchmark shortfall except one question: Q5, Q7, Q14 (⚠️) and Q18 (❌). A hoisting pre-pass over module-level declarations, or defer callee resolution the way gap 2 defers uses. Only adds correct edges, so unlike gap 18 there is no soundness question to settle first. BENCHMARK.md predicts it moves four answers — worth checking that prediction against the result, since a prediction that misses says the model of the gap is wrong.
-2. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
-3. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 4+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
-4. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
-5. **Gap 20 — object field flow.** Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
-6. **Cross-file test harness** — mostly done. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests, gap 7 the first assertions on cross-file edges, and gaps 21/22 the breadth that was missing: re-export chains, default exports, `export * from`, and tsconfig aliases. What's left is whatever the next gap needs.
-7. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
-8. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
+1. **Call-site resolution** — gap 1's ignored receiver and gap 8's shadowing, as one change. Demoted twice now: first below gap 16 (measured ambiguity at live call sites is 0.4%, not the 8.0% within-file collision rate it was prioritised on), then below gaps 18 and 19, which cost eight benchmark answers where this costs none that have been observed. Still the **only known source of wrong edges** — but the benchmark found zero wrong answers in twenty, which is evidence the 0.4% rarely bites in practice. Gap 8's entry explains why the two can't be separated. Cheaper than type inference: restrict the name-only match to method declarations, and use `KNOWN_GLOBALS` so a global receiver marks the call external rather than binding `Bun.file()` to a local `file`.
+2. **MCP wrapper** — unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before items 3+: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
+3. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.
+4. **Gap 20 — object field flow.** Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
+5. **Cross-file test harness** — mostly done. Gaps 13/14 added the first `analyse`-on-a-temp-dir tests, gap 7 the first assertions on cross-file edges, and gaps 21/22 the breadth that was missing: re-export chains, default exports, `export * from`, and tsconfig aliases. What's left is whatever the next gap needs.
+6. **Types decision** (remainder of gap 3) — do type references belong in a data-flow graph at all? Gap 12 settled that type *bodies* are skipped; this is the separate question of whether `const x: Result` should record a use of `Result`.
+7. **Destructuring assignment** (remainder of gap 5) — `[a, b] = foo()` needs a lookup-per-leaf sibling to `collectPatternNames`. Small, but rare enough to wait for evidence.
 
 **Measured August 15 2026** by calling `analyse()` directly and reading `lookups`. On `src/scripts`, 8 files: **748 resolved, 28 unresolved, 189 external — 96.4%** excluding externals. Whole repo, 12 files, 316 nodes: 89.3%. The progression over one day, same target, as each gap closed:
 
