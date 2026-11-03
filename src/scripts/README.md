@@ -78,11 +78,11 @@ destructuring-target heuristics, JS-only cross-file linking gap, etc).
 ## Running things
 
 ```bash
-# Analyze a project and open the graph viewer in your browser
-bun run src/scripts/flow.ts <path-to-project>
+# Analyze the current directory and open the graph viewer in your browser
+bun run src/scripts/flow.ts
 
 # or, once linked as a bin (see package.json's "bin" field):
-flow <path-to-project>
+vena
 
 # Dump the raw AST for src/tests/example.ts (for engine.ts development)
 bun run src/scripts/tree.ts

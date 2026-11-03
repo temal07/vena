@@ -23,10 +23,10 @@ bun install
 ### Build the graph and open the viewer
 
 ```bash
-vena ./path/to/project
+vena
 ```
 
-vena scans for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files, analyzes them, writes `graph.json`, and opens a local graph viewer. Search for a symbol to reveal it and its connections; click a node for its declaration site and every use.
+From the project directory, vena scans for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files, analyzes them, writes `graph.json`, and opens a local graph viewer. Search for a symbol to reveal it and its connections; click a node for its declaration site and every use.
 
 ### Trace a value from the terminal
 

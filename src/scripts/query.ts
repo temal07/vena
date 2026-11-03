@@ -5,7 +5,7 @@
  * Usage: `vena-trace <target> [graph.json] [--back] [--strict] [--depth N] [--max N]`
  *
  * Reads the graph off disk rather than re-running the analysis, so querying
- * is decoupled from the CLI/viewer pipeline: `vena <dir>` produces the graph
+ * is decoupled from the CLI/viewer pipeline: `vena` produces the graph
  * once (see its step 5), everything here is a pure consumer of that file.
  *
  * Two questions, one traversal:
@@ -279,7 +279,7 @@ const USAGE =
     "  <target>      what to trace: file:line (`compose.ts:38`), file:name\n" +
     "                (`compose.ts:res`), or a bare name (`res`). Ambiguous input\n" +
     "                lists the matches with addresses you can paste back.\n" +
-    "  [graph.json]  graph to read (default: ./graph.json, written by `vena <dir>`)\n" +
+    "  [graph.json]  graph to read (default: ./graph.json, written by `vena`)\n" +
     "  --back        where did this value come from? (default: where does it go?)\n" +
     "  --strict      proven edges only — drop flow assumed through unresolved calls\n" +
     `  --depth N     maximum hops (default ${DEFAULT_DEPTH})\n` +
@@ -369,7 +369,7 @@ async function main(): Promise<void> {
 
     const file = Bun.file(graphPath);
     if (!(await file.exists())) {
-        console.error(`vena-trace: no graph at ${graphPath} — run \`vena <directory>\` first`);
+        console.error(`vena-trace: no graph at ${graphPath} — run \`vena\` first`);
         process.exit(1);
     }
 
