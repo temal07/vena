@@ -1218,3 +1218,86 @@ test("gap 22: a malformed tsconfig means no aliases, not a crash", async () => {
 // Gap 7 (imports assume `.ts`) is cross-file — see the note above.
 //
 // Gap 8 has its tests now — see "Gaps 1 + 8" above.
+
+// ==== Review fixes on gaps 1 & 8 ====
+
+// Each overload signature is a MethodDefinition of its own. Declaring them as
+// methods made every overloaded method look like two, and two means unresolved.
+test("review: an overloaded method still resolves through this.m()", () => {
+    expect(feedsWithMarks(`class A { m(a: string): void; m(b: any) { return b } run(x) { return this.m(x) } }`))
+        .toContain("x -> b");
+});
+
+test("review: an overload signature adds no binding and no uses", () => {
+    const counts = useCounts(`const a = 1; class A { m(a: string): void; m(b: any) { return b } }`);
+    expect(counts.a).toBe(0);
+});
+
+// The flag that marks the next function as a method must not outlive a member
+// whose value is a signature with no body.
+test("review: a function after an overload signature is not a method", () => {
+    const edges = feedsWithMarks(
+        `class A { run(p) { return p } go(a: string): void; x = function () { return this.run(z) } } class B { run(q) { return q } } const z = 1;`);
+    expect(edges).not.toContain("z -> p");
+});
+
+test("review: an inherited this.m() does not resolve to an unrelated class", () => {
+    expect(feedsWithMarks(`class B extends Base { go(x) { this.render(x) } } class C { render(y) {} }`))
+        .not.toContain("x -> y");
+});
+
+test("review: this.m() follows `extends` to a local superclass", () => {
+    const edges = feedsWithMarks(
+        `class Base { render(y) {} } class B extends Base { go(x) { this.render(x) } } class C { render(w) {} }`);
+    expect(edges).toContain("x -> y");
+    expect(edges).not.toContain("x -> w");
+});
+
+test("review: a declaration in a switch case is scoped to the switch", () => {
+    expect(feedsByLine([
+        "const path = 1;",                               // 1
+        "function f(k) { const a = path;",               // 2
+        "  switch (k) { case 1: const path = 2; } }",    // 3
+    ])).toContain("path@1 -> a@2");
+});
+
+test("review: a declaration in a static block is scoped to the block", () => {
+    expect(feedsByLine([
+        "const path = 1;",                                      // 1
+        "function f() { const a = path;",                       // 2
+        "  class K { static { const path = 2; } } }",           // 3
+    ])).toContain("path@1 -> a@2");
+});
+
+test("review: a named function expression's name is not visible outside it", () => {
+    const l = lookups(`const h = function process(x) {}; process.exit(1);`);
+    expect(l.resolved).toBe(0);
+    expect(useCounts(`const g = function fact(n) { return fact(n) }`).fact).toBe(1);
+});
+
+test("review: this.m() in a plain function keeps the built-in method guard", () => {
+    expect(feedsWithMarks(`class Q { push(v) {} } const item = 1; [1].forEach(function () { this.push(item) });`))
+        .not.toContain("item -> v");
+});
+
+test("review: a destructured catch parameter's default is a use", () => {
+    expect(useCounts(`const fallback = 1; try {} catch ({ message = fallback }) {}`).fallback).toBe(1);
+});
+
+test("review: a call on an undeclared receiver is unresolved, not external", () => {
+    expect(lookups(`undeclaredTypo.m();`).external).toBe(0);
+});
+
+test("review: a call on a package import is external, not unresolved", () => {
+    const l = lookups(`import fs from "fs"; import * as ts from "typescript"; fs.readFileSync("x"); ts.createProgram();`);
+    expect(l.unresolved).toBe(0);
+});
+
+test("review: an import never links to a class method of the same name", async () => {
+    const { edges } = await linkFixture({
+        "a.ts": `class P { parse(q) { return q } } export function parse(x) { return x }`,
+        "b.ts": `import { parse } from "./a"; const z = 1; const out = parse(z);`,
+    });
+    expect(edges).toContain("z -> x");
+    expect(edges).not.toContain("z -> q");
+});

@@ -307,8 +307,10 @@ function resolveExportedName(
   const results = treeResults[file];
   if (!results) return undefined;
 
+  // A method shares the declarations list but is never what a module exports
+  // by name: `class P { parse() {} }` doesn't publish `parse`.
   const declaredHere = (local: string) =>
-    results.declarations.find((declaration) => declaration.name === local);
+    results.declarations.find((declaration) => declaration.name === local && declaration.methodOf === undefined);
 
   /** Continue into the module `source` names, asking it for `wanted`. */
   const follow = (source: string | undefined, wanted: string) => {
@@ -351,7 +353,7 @@ function resolveExportedName(
 
   // 4. Pre-existing behaviour: any declaration of that name in the file.
   return results.declarations.find(
-    (declaration) => declaration.name === name && declaration.kind !== "import"
+    (declaration) => declaration.name === name && declaration.kind !== "import" && declaration.methodOf === undefined
   );
 }
 

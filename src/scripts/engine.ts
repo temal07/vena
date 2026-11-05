@@ -1,6 +1,6 @@
 import type { Binding, Kind, Scope, Results, ReExport, Use } from "./types";
 import { TSESTree } from "@typescript-eslint/typescript-estree";
-import { resolve, dirname } from "path";
+import { resolve, dirname, isAbsolute } from "path";
 import { BUILTIN_METHODS, KNOWN_GLOBALS } from "./globals";
 // loc gives us line numbers, which is off by default in typescript-estree.
 
@@ -110,8 +110,16 @@ type CallSite = {
     receiver?: Receiver;
     /** The class `this` refers to at the call, if any. */
     thisClass: number | null;
-    resolved?: { callee?: Binding; external: boolean };
+    resolved?: MethodAnswer;
 };
+
+/**
+ * What a call resolved to. With no callee, `external` says the call is the
+ * environment's or another package's, and `unresolved` says it is definitely
+ * ours and missed. Neither set leaves it to the method name, so `xs.map()` on
+ * an unknown receiver still counts as a built-in.
+ */
+type MethodAnswer = { callee?: Binding; external: boolean; unresolved?: boolean };
 
 /**
  * One argument of a call. It was stamped with a placeholder feed whose start is
@@ -158,6 +166,19 @@ let savedThisClasses: (number | null)[] = [];
 let nextFunctionIsMethod = false;
 
 /**
+ * Every method in the file, with the scope its class was declared in. Methods
+ * are kept out of the lexical scopes: nothing refers to one by bare name —
+ * `score` alone is never `this.score` — so in a scope they could only ever be
+ * found by mistake (gap 1). Only `o.m()` reads them, through `methodsNamed`.
+ */
+let methodBindings: { binding: Binding; scope: Scope }[] = [];
+
+/** The superclass a class names in `extends`, when that is a plain name, and
+ *  the scopes visible where it was written — what `this.m()` follows when the
+ *  class doesn't declare `m` itself. Keyed like `classStack`. */
+let classSupers = new Map<number, { name: string; chain: Scope[] }>();
+
+/**
  * A shallow copy of the scope stack, shared between every note filed while the
  * stack is unchanged. Deferring every lookup files a note per identifier, and a
  * copy each would be the cost. Same length and same top scope means the same
@@ -191,13 +212,31 @@ function receiverOf(object: TSESTree.Node): Receiver {
 /** Every method called `name` visible from `chain` — all of them, not the
  *  nearest, because which class a receiver holds is the open question. */
 function methodsNamed(name: string, chain: Scope[]): Binding[] {
-    const found: Binding[] = [];
-    for (const scope of chain) {
-        for (const d of scope.declarations) {
-            if (d.name === name && d.methodOf !== undefined && !found.includes(d)) found.push(d);
-        }
+    return methodBindings
+        .filter((m) => m.binding.name === name && chain.includes(m.scope))
+        .map((m) => m.binding);
+}
+
+/**
+ * Class `cls`'s method among `methods`, or failing that the nearest local
+ * superclass's. Undefined when it can't be sure: two candidates on one class,
+ * or a superclass that isn't a class declared in this file — an imported
+ * `Base` may well define the method, so an unrelated class's must not stand in.
+ */
+function methodOfClass(cls: number, methods: Binding[]): Binding | undefined {
+    const seen = new Set<number>();
+    let current: number | undefined = cls;
+    while (current !== undefined && !seen.has(current)) {
+        seen.add(current);
+        const owner: number = current;
+        const own = methods.filter((m) => m.methodOf === owner);
+        if (own.length === 1) return own[0];
+        if (own.length > 1) return undefined;
+        const parent = classSupers.get(owner);
+        const holder = parent && lookup(parent.name, parent.chain);
+        current = holder?.kind === "class" ? holder.start : undefined;
     }
-    return found;
+    return undefined;
 }
 
 /**
@@ -205,37 +244,46 @@ function methodsNamed(name: string, chain: Scope[]): Binding[] {
  * when it can be sure, and anything else is left unresolved — which costs an
  * edge, where a guess could invent one.
  *
- *   this.m()     — the enclosing class's `m`
- *   C.m()        — class `C`'s own `m`
- *   Bun.m()      — an undeclared receiver is the environment's, never ours
- *   ns.m()       — an import's members belong to another module
+ *   this.m()     — the enclosing class's `m`, or a local superclass's; nothing
+ *                  else, since an unrelated class's `m` is not inherited
+ *   C.m()        — class `C`'s own `m`, or a local superclass's
+ *   Bun.m()      — a known global's, never ours; any other undeclared receiver
+ *                  is a miss
+ *   ns.m()       — a package import's members are external; a project
+ *                  import's are ours, and not resolved here
  *   anything.m() — the one method called `m`, if there is exactly one and the
- *                  name isn't also a built-in method (`xs.map` could be either)
+ *                  name isn't also a built-in method (`xs.map` could be either).
+ *                  A plain function's `this` is anything too.
  */
-function resolveMethod(site: CallSite): { callee?: Binding; external: boolean } {
+function resolveMethod(site: CallSite): MethodAnswer {
     const methods = methodsNamed(site.name, site.chain);
     const receiver = site.receiver!;
 
     if (receiver.kind === "this" && site.thisClass !== null) {
-        const own = methods.filter((m) => m.methodOf === site.thisClass);
-        if (own.length === 1) return { callee: own[0], external: false };
-        // Not declared on this class — inherited, perhaps. Fall through.
+        return { callee: methodOfClass(site.thisClass, methods), external: false };
     }
     if (receiver.kind === "name") {
         const holder = lookup(receiver.name, site.chain);
-        if (!holder) return { external: true };
-        if (holder.kind === "import") return { external: false };
+        if (!holder) {
+            return KNOWN_GLOBALS.has(receiver.name)
+                ? { external: true }
+                : { external: false, unresolved: true };
+        }
+        if (holder.kind === "import") {
+            // `source` is an absolute path exactly when the import is in-project.
+            return isAbsolute(holder.source ?? "")
+                ? { external: false, unresolved: true }
+                : { external: true };
+        }
         if (holder.kind === "class") {
-            const own = methods.filter((m) => m.methodOf === holder.start);
-            return { callee: own.length === 1 ? own[0] : undefined, external: false };
+            return { callee: methodOfClass(holder.start, methods), external: false };
         }
     }
-    if (methods.length !== 1) return { external: false };
-    if (receiver.kind !== "this" && BUILTIN_METHODS.has(site.name)) return { external: false };
+    if (methods.length !== 1 || BUILTIN_METHODS.has(site.name)) return { external: false };
     return { callee: methods[0], external: false };
 }
 
-function resolveSite(site: CallSite): { callee?: Binding; external: boolean } {
+function resolveSite(site: CallSite): MethodAnswer {
     site.resolved ??= site.receiver
         ? resolveMethod(site)
         : { callee: lookup(site.name, site.chain), external: false };
@@ -306,9 +354,9 @@ function trace(kind: string, detail: string, depthChange: 0 | 1 | -1 = 0): void 
 /** Innermost-scope-outward lookup of `name` or undefined if there is nothing binding to it */
 function lookup(name: string, chain: Scope[]): Binding | undefined {
     for (let i = chain.length - 1; i >= 0; i--) {
-        // A method's name sits in the scope around its class, but nothing
-        // refers to it by bare name — `score` alone is never `this.score`.
-        const found = chain[i]?.declarations.find(d => d.name === name && d.methodOf === undefined);
+        // Methods are never in here (see `methodBindings`), so a bare name
+        // can't find one.
+        const found = chain[i]?.declarations.find(d => d.name === name);
         if (found) return found;
     }
 
@@ -396,6 +444,8 @@ export function collectVariables(
     thisClass = null;
     savedThisClasses = [];
     nextFunctionIsMethod = false;
+    methodBindings = [];
+    classSupers = new Map();
     chainCache = null;
     // Same reasoning for the walk state. A balanced walk leaves both at their
     // initial value anyway; resetting means a file that threw mid-walk can't
@@ -498,11 +548,11 @@ function resolvePendingCalls(results: Results): void {
     // resolved to — and of nothing at all when it didn't. Attached before the
     // rewrite below, since its feeds can hold placeholders of their own.
     for (const pending of pendingCallees) {
-        const { callee, external } = resolveSite(pending.site);
+        const { callee, external, unresolved } = resolveSite(pending.site);
         if (callee) {
             attachUse(callee, pending.use, pending.inReturnStatement, pending.fn);
             results.lookups.resolved++;
-        } else if (external || KNOWN_GLOBALS.has(pending.site.name)) {
+        } else if (!unresolved && (external || KNOWN_GLOBALS.has(pending.site.name))) {
             results.lookups.external++;
         } else {
             results.lookups.unresolved++;
@@ -793,6 +843,26 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         return;
     }
 
+    // switch (k) { case 1: const x = … } — the cases share one block of their
+    // own. Without a scope the `const` landed in the enclosing one and, once
+    // uses resolve against finished scopes, captured an outer `x` read before
+    // the switch. The discriminant is read outside it, like a for-of's `right`.
+    // A class's `static { }` block is the same story: a block that is not a
+    // BlockStatement.
+    if (node.type === "SwitchStatement") {
+        walkVariables(node.discriminant, results, stack);
+        pushScope("switch", stack);
+        for (const switchCase of node.cases) walkVariables(switchCase, results, stack);
+        popScope(results, stack);
+        return;
+    }
+    if (node.type === "StaticBlock") {
+        pushScope("static", stack);
+        for (const statement of node.body) walkVariables(statement, results, stack);
+        popScope(results, stack);
+        return;
+    }
+
     // { a: b } — an object literal property. A non-computed key is a label,
     // not a reference: the `a` names the property, so walking it would resolve
     // to any variable that happens to also be called `a` and record a use that
@@ -837,11 +907,16 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         let funcBinding;
 
         // if the function has an ID (meaning it isn't an anonymous function)
-        // write the function in the current stack (not a separate one)
+        // write the function in the current stack (not a separate one) — unless
+        // it is a function *expression*, whose name is visible only inside its
+        // own body. In the enclosing scope `function process() {}` would capture
+        // every use of the global `process` there, before it as well as after.
+        let ownName: Binding | undefined;
         if (node.id) {
             trace("declare", `${node.id.name} (function) at offset ${node.id.range[0]}`);
             funcBinding = makeBinding(node.id, "declaration", "function", "N/A");
-            stack[stack.length - 1]!.declarations.push(funcBinding);
+            if (node.type === "FunctionExpression") ownName = funcBinding;
+            else stack[stack.length - 1]!.declarations.push(funcBinding);
         } else {
             // If there is no node.id (anonymous function), check whether a feed
             // target is available and treat it as the function binding to which
@@ -868,7 +943,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         // push the function now that params are filled in paramDeclarations
         stack.push({
             name: node.id?.name ?? "anonymous_func",
-            declarations: paramDeclarations,
+            // After the parameters, so `function f(f) {}` still reads the parameter.
+            // A copy, so the name doesn't become one of the function's `params`.
+            declarations: ownName ? [...paramDeclarations, ownName] : paramDeclarations,
             savedFeedTargets: currentFeedTargets,
             savedFeedsInferred: currentFeedsInferred,
             savedFunction: currentFunction,
@@ -1022,6 +1099,10 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     if (node.type === "CatchClause") {
         pushScope("catch", stack);
         if (node.param) collectPatternNames(node.param, stack[stack.length - 1]!.declarations, "catch");
+        // The names are declarations, but a destructured param can hold
+        // expressions too: `catch ({ message = fallback })` reads `fallback`.
+        // The names themselves resolve to their own declarations and drop out.
+        if (node.param) walkVariables(node.param, results, stack);
         walkVariables(node.body, results, stack);
         popScope(results, stack);
         return;
@@ -1039,7 +1120,17 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     // binding we just made and walk the value ourselves, so the params (and,
     // via currentFunction, the returns) land on the method. Same
     // save/set/walk/restore shape VariableDeclarator uses for `const f = () => {}`.
-    if (node.type === "MethodDefinition") {
+    if (node.type === "MethodDefinition" || node.type === "TSAbstractMethodDefinition") {
+        // An overload signature (`m(a: string): void;`), an abstract method or
+        // a `declare class` member has no body. It declares no method of its
+        // own — counting each signature as one made every overloaded method
+        // look like two, and two candidates resolve to neither — and its
+        // parameters are types, not values. Only a computed key is read.
+        if (node.value.type === "TSEmptyBodyFunctionExpression") {
+            if (node.computed) walkVariables(node.key, results, stack);
+            return;
+        }
+
         // class R { [name]() {} } — a computed key is an expression, not the
         // method's name. Binding it would declare something called "name",
         // which is the variable being read, not the method it names (and the
@@ -1056,7 +1147,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         const methodBinding = makeBinding(node.key, "declaration", "function");
         // Which class it belongs to — this is what gap 1's resolution reads.
         methodBinding.methodOf = classStack[classStack.length - 1];
-        stack[stack.length - 1]?.declarations.push(methodBinding);
+        // Straight into the results, not into a scope: see `methodBindings`.
+        results.declarations.push(methodBinding);
+        methodBindings.push({ binding: methodBinding, scope: stack[stack.length - 1]! });
         nextFunctionIsMethod = true;
 
         const previous = currentFeedTargets; // save the old value
@@ -1188,6 +1281,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     if (isClass) {
         const id = node.id ? node.id.range[0] : node.range[0];
         classStack.push(id);
+        if (node.superClass?.type === "Identifier") {
+            classSupers.set(id, { name: node.superClass.name, chain: chainOf(stack) });
+        }
         savedThisClasses.push(thisClass);
         thisClass = id;
     }

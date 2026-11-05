@@ -491,3 +491,12 @@ test("call matching: recursion terminates without a depth limit", async () => {
     expect(reached).toContain("out@3");
     expect(reached).not.toContain("other@4");
 });
+
+test("call matching: leaving a function started inside follows a caller's `return inner()`", async () => {
+    const source = [
+        "function inner(p) { const q = p; return q }",   // 1
+        "function wrap() { return inner(1) }",           // 2
+        "const out = wrap();",                           // 3
+    ].join("\n");
+    expect(await reach(source, "m.ts:q", "forward")).toEqual(["inner@1", "out@3", "q@1", "wrap@2"]);
+});

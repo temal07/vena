@@ -296,8 +296,9 @@ export function traverse(
         note: string,
         inferred: boolean,
         context: Context,
-        /** Forward: arrived at this function through its return — leave only by these calls. */
-        returnTo?: CallSites,
+        /** Forward: arrived at this function through its return — leave only by
+         *  these calls, or by any of them (`"any"`) when no call was entered. */
+        returnTo?: CallSites | "any",
         /** Backward: holding this function's result at these calls. */
         enteredBy?: CallSites,
     ): void {
@@ -313,7 +314,7 @@ export function traverse(
         const key = [
             node.id,
             context.map((entry) => `${entry.fn}@${keyOf(entry.sites)}`).join(";"),
-            returnTo ? keyOf(returnTo) : "",
+            returnTo === "any" ? "*" : returnTo ? keyOf(returnTo) : "",
             enteredBy ? keyOf(enteredBy) : "",
         ].join("|");
         if (visited.has(key)) {
@@ -356,7 +357,7 @@ export function traverse(
         if (direction === "forward") {
             let edges = index.outgoing.get(node.id) ?? [];
             // Back out of a call: only the result of the call we went in through.
-            if (returnTo) edges = edges.filter((edge) => atSites(edge, "resultOf", returnTo));
+            if (returnTo && returnTo !== "any") edges = edges.filter((edge) => atSites(edge, "resultOf", returnTo));
             for (const edge of edges) follow(edge, context);
         } else {
             const edges = index.incoming.get(node.id) ?? [];
@@ -384,16 +385,20 @@ export function traverse(
         // without this, `return down(n - 1)` let a value leave the outer call
         // and then leave again, to every caller. Starting on a function means
         // "where do its results go", so every return of it counts there.
+        // Leaving a function the trace started inside (no call to match) means
+        // holding its result from every call, so a return of any call counts —
+        // but not `return f`, which hands back the function, not a result.
         if (direction === "forward") {
             for (const { fn, returned } of index.returnedBy.get(node.id) ?? []) {
                 const applies =
                     untold(returned) ? true :
+                    returnTo === "any" ? returnedCalls(fn, returned).size > 0 :
                     returnTo ? [...returnTo].some((site) => returnedCalls(fn, returned).has(site)) :
                     depth === 0 && node.kind === "function" ? true :
                     returned.direct === true;
                 if (!applies) continue;
                 const inCall = innermostCallTo(context, fn);
-                walk(fn, depth + 1, "-> returned by ", false, inCall ? context.slice(0, -1) : context, inCall);
+                walk(fn, depth + 1, "-> returned by ", false, inCall ? context.slice(0, -1) : context, inCall ?? "any");
             }
         } else if (node.kind === "function" && node.returns) {
             // Reached through a call's result: its returns are inside that call.
