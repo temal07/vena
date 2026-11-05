@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { parse } from "@typescript-eslint/typescript-estree"
 import { collectVariables } from '../scripts/engine';
-import { isProjectSource, allowsJsx, analyse, resolveImport } from '../scripts/analyse';
+import { isProjectSource, allowsJsx, analyse, resolveImport, aliasCandidates, parseJsonc } from '../scripts/analyse';
 import { tmpdir } from 'os';
 import { rm } from 'fs/promises';
 
@@ -636,6 +636,580 @@ test("gap 18: the inferred flag does not leak past the call that set it", () => 
     expect(marks).not.toContain("~r -> b");
 });
 
+// ==== Gap 19: a callee declared later in the file ====
+
+// `CallExpression` looks its callee up off the scope stack *while* walking, so
+// a function declared further down isn't there yet and its arguments never
+// reach its parameters. Uses already survived this (gap 2) — `later -> out`
+// existed — only the argument wiring was lost. 99 of hono's 381 arrow call
+// sites, 115 of excalidraw's 717.
+
+test("gap 19: an argument reaches a const arrow declared later", () => {
+    expect(feedsWithMarks(`const z = 1; const out = later(z); const later = (p) => p;`))
+        .toEqual(["later -> out", "z -> p"]);
+});
+
+test("gap 19: an argument reaches a function declaration that comes later", () => {
+    expect(feedsWithMarks(`const z = 1; const out = later(z); function later(p) { return p }`))
+        .toEqual(["later -> out", "z -> p"]);
+});
+
+test("gap 19: arguments map by position on a later callee", () => {
+    expect(feedsWithMarks(`const a = 1; const b = 2; pair(a, b); function pair(x, y) {}`))
+        .toEqual(["a -> x", "b -> y"]);
+});
+
+// Matches an earlier-declared callee: an argument with no parameter falls back
+// to gap 18's pass-through rather than being dropped or misrouted.
+test("gap 19: an extra argument to a later callee passes through, inferred", () => {
+    expect(feedsWithMarks(`const a = 1; const b = 2; const out = one(a, b); function one(p) {}`))
+        .toEqual(["a -> p", "one -> out", "~b -> out"]);
+});
+
+test("gap 19: a name that never resolves still passes through, inferred", () => {
+    expect(feedsWithMarks(`const z = 1; const out = nowhere(z);`))
+        .toEqual(["~z -> out"]);
+});
+
+test("gap 19: nested later callees chain through their parameters", () => {
+    expect(feedsWithMarks(
+        `const z = 1; const out = outer(inner(z)); function inner(q) { return q } function outer(p) { return p }`,
+    )).toEqual(["inner -> p", "outer -> out", "z -> q"]);
+});
+
+// The inner call never resolves, so its argument passes through to whatever
+// the outer call feeds — which itself was only a placeholder at the time. The
+// pass-through has to follow the outer placeholder to the real parameter and
+// keep the inferred mark on the way.
+test("gap 19: an unknown call inside a later callee feeds its parameter, inferred", () => {
+    expect(feedsWithMarks(`const z = 1; later(unknown(z)); function later(p) {}`))
+        .toEqual(["~z -> p"]);
+});
+
+test("gap 19: a later callee inside an unknown call is still proven", () => {
+    expect(feedsWithMarks(`const z = 1; const out = unknown(later(z)); function later(p) { return p }`))
+        .toEqual(["z -> p", "~later -> out"]);
+});
+
+// The retry looks the callee up through the scopes that were visible at the
+// call — a function tucked inside another function was never one of them.
+test("gap 19: a later function in a scope the call can't see is not used", () => {
+    expect(feedsWithMarks(`const z = 1; const out = h(z); function wrap() { function h(q) { return q } }`))
+        .toEqual(["~z -> out"]);
+});
+
+// Member calls were left out of gap 19 while they matched by name alone. Since
+// gap 1 restricted them to methods, a method declared further down is safe to
+// wait for.
+test("gap 19: a method call reaches a method declared later", () => {
+    expect(feedsWithMarks(`const r = new R(); const z = 1; const out = r.later(z); class R { later(p) { return p } }`))
+        .toContain("z -> p");
+});
+
+// Imports are hoisted, so one written below its call is still the callee. The
+// deferred call has to hand over to gap 16's cross-file resolution.
+test("gap 19: a call above its import still reaches the parameter", async () => {
+    expect(await crossFileEdges({
+        "util.ts": `export function greet(name) { return name }`,
+        "main.ts": `const who = "ada"; greet(who); import { greet } from "./util";`,
+    })).toContain("who -> name");
+});
+
+// Gap 16 and gap 19 both use negative starts in the same file. If they shared
+// ids, one call's argument would be rewritten onto the other's parameter.
+test("gap 19: import placeholders and later-callee placeholders stay separate", async () => {
+    expect(await crossFileEdges({
+        "util.ts": `export function greet(name) { return name }`,
+        "main.ts": `import { greet } from "./util"; const a = 1; const b = 2; greet(a); later(b); function later(p) {}`,
+    })).toEqual(["a -> name", "b -> p"]);
+});
+
+// ==== Gaps 1 + 8: call-site resolution ====
+
+/** Like feedsWithMarks, but each end carries its declaration line, so two
+ *  declarations with the same name can be told apart. */
+function feedsByLine(lines: string[]): string[] {
+    const ast = parse(lines.join("\n"), { loc: true, range: true });
+    const results = collectVariables(ast as any, "/test.ts");
+    const output: string[] = [];
+    for (const decl of results.declarations) {
+        for (const use of decl.uses) {
+            for (const fed of use.feeds ?? []) {
+                output.push(`${fed.inferred ? "~" : ""}${decl.name}@${decl.line} -> ${fed.name}@${fed.line}`);
+            }
+        }
+    }
+    return output.sort();
+}
+
+// Gap 8 — a use resolved against the scopes as they stood when the walk reached
+// it, so a declaration further down an inner scope never got to shadow. An
+// inner `function` really is hoisted, so this call returns 2 and the graph said
+// it called the outer foo. All three halves — the use, the argument, and the
+// call's result — have to agree on the inner one.
+test("gap 8: a later inner function shadows an outer one, for the call and its argument", () => {
+    const edges = feedsByLine([
+        "function foo(p) { return 1 }",   // 1
+        "function f(z) {",                // 2
+        "  const a = foo(z);",            // 3
+        "  function foo(q) { return 2 }", // 4
+        "}",
+    ]);
+    expect(edges).toContain("foo@4 -> a@3");
+    expect(edges).toContain("z@2 -> q@4");
+    expect(edges).not.toContain("foo@1 -> a@3");
+    expect(edges).not.toContain("z@2 -> p@1");
+});
+
+test("gap 8: a later inner const shadows an outer one", () => {
+    expect(feedsByLine([
+        "const x = 1;",                   // 1
+        "function f() {",                 // 2
+        "  const y = x;",                 // 3
+        "  const x = 2;",                 // 4
+        "}",
+    ])).toEqual(["x@4 -> y@3"]);
+});
+
+// The write target of an assignment was the last eager lookup. Left alone, the
+// use of `x` would resolve to the inner one and the value would be written to
+// the outer — the inconsistency gap 8 was filed to avoid.
+test("gap 8: an assignment writes to the later inner declaration it names", () => {
+    const edges = feedsByLine([
+        "let x = 0;",                     // 1
+        "function f() {",                 // 2
+        "  x = foo();",                   // 3
+        "  var x;",                       // 4
+        "}",
+        "function foo() { return 1 }",    // 6
+    ]);
+    expect(edges).toContain("foo@6 -> x@4");
+    expect(edges).not.toContain("foo@6 -> x@1");
+});
+
+test("gap 8: with nothing shadowing, a use still reaches the outer declaration", () => {
+    expect(feedsByLine([
+        "const x = 1;",                   // 1
+        "function f() { const y = x }",   // 2
+    ])).toEqual(["x@1 -> y@2"]);
+});
+
+// Resolving against finished scopes exposed two declarations that were in the
+// wrong scope all along. Found on Hono: `checkOptionalParameter(path)` read the
+// `path` of the `for (const path of paths)` on the next line.
+test("gap 8: a loop variable belongs to the loop, not the block around it", () => {
+    const edges = feedsByLine([
+        "function f(path) {",                     // 1
+        "  const paths = g(path);",               // 2
+        "  for (const path of paths) { h(path) }",// 3
+        "}",
+        "function g(p) { return p }",             // 5
+        "function h(q) { return q }",             // 6
+    ]);
+    expect(edges).toContain("path@1 -> p@5");
+    expect(edges).toContain("path@3 -> q@6");
+    expect(edges).not.toContain("path@3 -> p@5");
+});
+
+test("gap 8: a catch parameter belongs to its clause", () => {
+    const edges = feedsByLine([
+        "const err = 1;",                         // 1
+        "function f() {",                         // 2
+        "  const a = err;",                       // 3
+        "  try {} catch (err) { const b = err }", // 4
+        "}",
+    ]);
+    expect(edges).toContain("err@1 -> a@3");
+    expect(edges).toContain("err@4 -> b@4");
+});
+
+test("gap 8: a `var` loop variable is still visible after the loop", () => {
+    expect(feedsByLine([
+        "for (var i = 0; i < 3; i++) {}",         // 1
+        "const last = i;",                        // 2
+    ])).toContain("i@1 -> last@2");
+});
+
+// Gap 1 — member calls matched any declaration in scope with the property's
+// name. Bun.file() bound to a local function called `file`, and `p` was said to
+// reach its parameter.
+test("gap 1: a call on an undeclared global is external, not a local function", () => {
+    const edges = feedsWithMarks(`function file(n) { return n } const p = "x"; const out = Bun.file(p);`);
+    expect(edges).not.toContain("p -> n");
+    expect(edges).not.toContain("file -> out");
+    expect(edges).toContain("~p -> out");
+});
+
+test("gap 1: any undeclared receiver is external", () => {
+    expect(feedsWithMarks(`class R { score(p) { return p } } const z = 1; const out = window.score(z);`))
+        .not.toContain("z -> p");
+});
+
+// Methods land in the scope around their class, which is what lets `r.score()`
+// find them — and what let a bare `score()` find them too.
+test("gap 1: a bare call never resolves to a method", () => {
+    expect(feedsWithMarks(`class R { score(p) { return p } } const z = 1; const out = score(z);`))
+        .not.toContain("z -> p");
+});
+
+test("gap 1: this.m() resolves to the enclosing class's method", () => {
+    expect(feedsByLine([
+        "class A { run(p) { return p } go(x) { return this.run(x) } }",  // 1
+        "class B { run(q) { return q } }",                                 // 2
+    ])).toContain("x@1 -> p@1");
+});
+
+test("gap 1: this.m() reaches a method declared later in the class", () => {
+    expect(feedsWithMarks(`class A { go(x) { return this.later(x) } later(p) { return p } }`))
+        .toContain("x -> p");
+});
+
+// `this` inside a plain function is not the class instance; inside an arrow it
+// is. With two classes defining `run`, only the `this` rule could pick one.
+test("gap 1: `this` in a nested function is not the class, in an arrow it is", () => {
+    const plain = feedsWithMarks(
+        `class A { run(p) { return p } go(x) { function inner() { return this.run(x) } } } class B { run(q) { return q } }`);
+    expect(plain).not.toContain("x -> p");
+    expect(plain).not.toContain("x -> q");
+    const arrow = feedsWithMarks(
+        `class A { run(p) { return p } go(x) { const inner = () => this.run(x) } } class B { run(q) { return q } }`);
+    expect(arrow).toContain("x -> p");
+});
+
+test("gap 1: C.m() on a local class resolves to that class's method", () => {
+    const edges = feedsWithMarks(
+        `class C { static make(p) { return p } } class D { make(q) { return q } } const z = 1; const out = C.make(z);`);
+    expect(edges).toContain("z -> p");
+    expect(edges).not.toContain("z -> q");
+});
+
+// Without types there is no telling which class `r` holds, so two candidates
+// means neither: a missing edge rather than a coin flip.
+test("gap 1: two methods with the same name leave an unknown receiver unresolved", () => {
+    const edges = feedsWithMarks(
+        `class A { score(p) { return p } } class B { score(q) { return q } } const r = make(); const z = 1; const out = r.score(z);`);
+    expect(edges).not.toContain("z -> p");
+    expect(edges).not.toContain("z -> q");
+    expect(edges).toContain("~z -> out");
+});
+
+// `xs.map(fn)` and `list.map(fn)` look identical without types. When a project
+// method shares its name with a built-in one, an unknown receiver could be
+// either, so it is left unresolved.
+test("gap 1: a method sharing a built-in method's name needs a known receiver", () => {
+    const edges = feedsWithMarks(`class List { map(f) { return f } } const xs = [1]; const fn = 1; const out = xs.map(fn);`);
+    expect(edges).not.toContain("fn -> f");
+    expect(feedsWithMarks(`class List { map(f) { return f } go(fn) { return this.map(fn) } }`))
+        .toContain("fn -> f");
+});
+
+// ==== Gaps 21 + 22: re-export chains and tsconfig `paths` aliases ====
+
+// Both gaps are cross-file and both fail as silence, so every test goes through
+// `analyse` and most of them assert on `imports` as well as on edges: an
+// unlinked import has to land in the right bucket, or the counter that is
+// supposed to make missing edges visible goes blind again — which is exactly
+// what gap 22 found it doing.
+async function linkFixture(files: Record<string, string>) {
+    const dir = await fixtureDir(files);
+    const { graph, imports, unlinkedImports } = await analyse(dir);
+    const nameById = new Map(graph.nodes.map((n) => [n.id, n.name]));
+    const edges = graph.edges.map((e) => `${nameById.get(e.source)} -> ${nameById.get(e.target)}`).sort();
+    await rm(dir, { recursive: true, force: true });
+    return { edges, imports, unlinkedImports };
+}
+
+// Gap 21 — a barrel has no declaration of the name it publishes, so the old
+// one-hop lookup ("is `greet` declared in index.ts?") could never succeed.
+// On excalidraw that was 2,459 of 5,892 value import specifiers.
+
+const greetModule = `export function greet(name) { return name }`;
+const greetCaller = (from: string, local = "greet") =>
+    `import { ${local} } from "${from}"; const who = "ada"; const out = ${local}(who);`;
+
+test("gap 21: an import through `export * from` reaches the declaration", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+    expect(imports.noDeclaration).toBe(0);
+});
+
+test("gap 21: an import through `export { x } from` reaches the declaration", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export { greet } from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+});
+
+// The barrel publishes `hello`; the source module knows it as `greet`. Asking
+// the next hop for `hello` would find nothing.
+test("gap 21: a renaming re-export asks the source for its own name", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export { greet as hello } from "./greet";`,
+        "main.ts": greetCaller("./lib", "hello"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+});
+
+test("gap 21: import-then-export is followed like a re-export", async () => {
+    const { edges } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `import { greet } from "./greet"; export { greet };`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 21: a chain of barrels is followed to the end", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/deep/greet.ts": greetModule,
+        "lib/deep/index.ts": `export * from "./greet";`,
+        "lib/index.ts": `export { greet } from "./deep";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+});
+
+// `export *` searches every star source in turn, so the name has to be found
+// in the second one even though the first has nothing by that name.
+test("gap 21: a name is searched for across every `export *` source", async () => {
+    const { edges } = await linkFixture({
+        "lib/other.ts": `export const unrelated = 1;`,
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * from "./other";\nexport * from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 21: `export { default as X } from` reaches a named default export", async () => {
+    const { edges } = await linkFixture({
+        "lib/widget.ts": `export default function render(props) { return props }`,
+        "lib/index.ts": `export { default as Widget } from "./widget";`,
+        "main.ts": `import { Widget } from "./lib"; const p = 1; const out = Widget(p);`,
+    });
+    expect(edges).toEqual(["p -> props", "render -> out"]);
+});
+
+test("gap 21: a default import links to a differently named default export", async () => {
+    const { edges } = await linkFixture({
+        "widget.ts": `export default function render(props) { return props }`,
+        "main.ts": `import foo from "./widget"; const p = 1; const out = foo(p);`,
+    });
+    expect(edges).toEqual(["p -> props", "render -> out"]);
+});
+
+// Two barrels that `export *` each other are ordinary in real projects. Without
+// the visited set the walk recurses forever; with it, a name neither module has
+// comes back as an honest miss.
+test("gap 21: an `export *` cycle terminates and reports the miss", async () => {
+    const { edges, imports, unlinkedImports } = await linkFixture({
+        "a.ts": `export * from "./b";`,
+        "b.ts": `export * from "./a";`,
+        "main.ts": `import { ghost } from "./a"; const x = ghost;`,
+    });
+    expect(edges).toEqual([]);
+    expect(imports.noDeclaration).toBe(1);
+    expect(unlinkedImports).toBe(1);
+});
+
+// `export * as ns` republishes the module as one namespace object, not its
+// names. Searching through it for `greet` would invent a link the source
+// never offered.
+test("gap 21: `export * as ns` is not searched for arbitrary names", async () => {
+    const { edges, imports } = await linkFixture({
+        "lib/greet.ts": greetModule,
+        "lib/index.ts": `export * as tools from "./greet";`,
+        "main.ts": greetCaller("./lib"),
+    });
+    expect(edges).not.toContain("who -> name");
+    expect(imports.noDeclaration).toBe(1);
+});
+
+// The case the old counter scored as a success: the file resolved, so
+// `!resolvedSource` never fired. It is a different failure from a missing
+// file, and it has to be counted as one.
+test("gap 21: a resolved file without the name counts as noDeclaration, not noFile", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "lib/index.ts": `export const other = 1;`,
+        "main.ts": `import { missing } from "./lib"; const x = missing;`,
+    });
+    expect(imports.noDeclaration).toBe(1);
+    expect(imports.noFile).toBe(0);
+    expect(unlinkedImports).toBe(1);
+});
+
+test("gap 21: type-only and namespace imports are excluded rather than failed", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "lib.ts": `export type T = number; export const v = 1;`,
+        "main.ts": `import type { T } from "./lib"; import * as ns from "./lib"; const x = ns;`,
+    });
+    expect(imports.typeOnly).toBe(1);
+    expect(imports.namespace).toBe(1);
+    expect(unlinkedImports).toBe(0);
+});
+
+// Gap 22 — a tsconfig `paths` alias doesn't start with ".", so it was read as a
+// package, skipped, and not even counted as unlinked. 1,209 of excalidraw's
+// ~3,700 in-project imports were `@excalidraw/*`.
+
+// The matcher is pure, so its rules are pinned without a fixture.
+test("gap 22: an exact alias pattern expands against baseUrl", () => {
+    expect(aliasCandidates("@pkg", { baseUrl: "/p", paths: { "@pkg": ["./pkg/index.ts"] } }))
+        .toEqual(["/p/pkg/index.ts"]);
+});
+
+test("gap 22: a wildcard alias substitutes the matched segment", () => {
+    expect(aliasCandidates("@app/util/x", { baseUrl: "/p", paths: { "@app/*": ["src/*"] } }))
+        .toEqual(["/p/src/util/x"]);
+});
+
+test("gap 22: the longest matching prefix wins", () => {
+    const config = { baseUrl: "/p", paths: { "@/*": ["src/*"], "@/core/*": ["core/*"] } };
+    expect(aliasCandidates("@/core/thing", config)).toEqual(["/p/core/thing"]);
+    expect(aliasCandidates("@/other", config)).toEqual(["/p/src/other"]);
+});
+
+test("gap 22: an exact match beats a wildcard that also matches", () => {
+    const config = { baseUrl: "/p", paths: { "@pkg/*": ["wild/*"], "@pkg/main": ["exact.ts"] } };
+    expect(aliasCandidates("@pkg/main", config)).toEqual(["/p/exact.ts"]);
+});
+
+test("gap 22: a fallback list keeps the config's order", () => {
+    expect(aliasCandidates("@x/a", { baseUrl: "/p", paths: { "@x/*": ["one/*", "two/*"] } }))
+        .toEqual(["/p/one/a", "/p/two/a"]);
+});
+
+test("gap 22: a specifier no pattern matches has no candidates", () => {
+    expect(aliasCandidates("zod", { baseUrl: "/p", paths: { "@app/*": ["src/*"] } })).toEqual([]);
+});
+
+test("gap 22: tsconfig comments and trailing commas parse", () => {
+    expect(parseJsonc(`{ // c\n "a": "http://x", /* b */ "b": [1, 2,], }`))
+        .toEqual({ a: "http://x", b: [1, 2] });
+});
+
+// End to end. The pairing NOTES calls out: an alias that lands on a barrel only
+// pays off when gap 21 then follows the barrel.
+test("gap 22: an alias onto a barrel links through to the declaration", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@pkg": ["./pkg/src/index.ts"] } } }`,
+        "pkg/src/greet.ts": greetModule,
+        "pkg/src/index.ts": `export * from "./greet";`,
+        "app/main.ts": greetCaller("@pkg"),
+    });
+    expect(edges).toEqual(["greet -> out", "who -> name"]);
+    expect(imports.linked).toBe(1);
+    expect(imports.external).toBe(0);
+});
+
+test("gap 22: a wildcard alias resolves extensionless and directory targets", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }`,
+        "src/greet.ts": greetModule,
+        "src/util/index.ts": `export const sep = "/";`,
+        "main.ts": `${greetCaller("@app/greet")}\nimport { sep } from "@app/util"; const s = sep;`,
+    });
+    expect(edges).toEqual(["greet -> out", "sep -> s", "who -> name"]);
+});
+
+// Legal since TS 4.1: targets are then relative to the tsconfig itself.
+test("gap 22: paths without baseUrl resolve relative to the tsconfig", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "paths": { "@g": ["./lib/greet.ts"] } } }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+// The base is pinned to the file that declares it, not to the child config.
+test("gap 22: paths inherited through `extends` resolve against the parent", async () => {
+    const { edges } = await linkFixture({
+        "config/tsconfig.json": `{ "compilerOptions": { "baseUrl": "..", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./config/tsconfig.json" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+// `extends` names a file. Resolving it to its directory and searching that for
+// tsconfig.json threw the name away, so `tsconfig.base.json` — the usual
+// monorepo spelling — was never read and its aliases fell back to `external`:
+// the same silence gap 22 exists to remove.
+test("gap 22: `extends` to a config not named tsconfig.json is read", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.base.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base.json" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.external).toBe(0);
+});
+
+test("gap 22: an extensionless `extends` finds the .json file", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.base.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base" }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 22: an `extends` cycle terminates and keeps the child's own paths", async () => {
+    const { edges } = await linkFixture({
+        "tsconfig.base.json": `{ "extends": "./tsconfig.json" }`,
+        "tsconfig.json": `{ "extends": "./tsconfig.base.json", "compilerOptions": { "baseUrl": ".", "paths": { "@g": ["lib/greet.ts"] } } }`,
+        "lib/greet.ts": greetModule,
+        "main.ts": greetCaller("@g"),
+    });
+    expect(edges).toContain("who -> name");
+});
+
+test("gap 22: the first fallback target that exists is the one used", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@x/*": ["missing/*", "real/*"] } } }`,
+        "real/greet.ts": greetModule,
+        "main.ts": greetCaller("@x/greet"),
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.noFile).toBe(0);
+});
+
+// The half NOTES calls worse than the missing edges: an alias that matched but
+// points at nothing is an in-project failure, and it has to be counted as one
+// rather than waved through as a dependency.
+test("gap 22: an alias with no real target counts as unlinked, not external", async () => {
+    const { imports, unlinkedImports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }`,
+        "main.ts": `import { gone } from "@app/gone"; import { z } from "zod"; const x = gone; const y = z;`,
+    });
+    expect(imports.noFile).toBe(1);
+    expect(imports.external).toBe(1);
+    expect(unlinkedImports).toBe(1);
+});
+
+test("gap 22: a malformed tsconfig means no aliases, not a crash", async () => {
+    const { edges, imports } = await linkFixture({
+        "tsconfig.json": `{ "compilerOptions": { "paths": `,
+        "lib.ts": greetModule,
+        "main.ts": `${greetCaller("./lib")}\nimport { z } from "@pkg";`,
+    });
+    expect(edges).toContain("who -> name");
+    expect(imports.external).toBe(1);
+});
+
  // ==== Untested gaps ====
 
 // No `.todo` left: every gap that collectVariables can express now has a test.
@@ -643,8 +1217,87 @@ test("gap 18: the inferred flag does not leak past the call that set it", () => 
 //
 // Gap 7 (imports assume `.ts`) is cross-file — see the note above.
 //
-// Gap 8 (a use resolves to an outer declaration that a later inner one
-// shadows) is testable in principle, but a test written now would pin the
-// *wrong* answer. `useCounts` counts by name, and both declarations are called
-// `x`, so distinguishing them needs an assertion on `start` offsets. Write it
-// with the fix, not before.
+// Gap 8 has its tests now — see "Gaps 1 + 8" above.
+
+// ==== Review fixes on gaps 1 & 8 ====
+
+// Each overload signature is a MethodDefinition of its own. Declaring them as
+// methods made every overloaded method look like two, and two means unresolved.
+test("review: an overloaded method still resolves through this.m()", () => {
+    expect(feedsWithMarks(`class A { m(a: string): void; m(b: any) { return b } run(x) { return this.m(x) } }`))
+        .toContain("x -> b");
+});
+
+test("review: an overload signature adds no binding and no uses", () => {
+    const counts = useCounts(`const a = 1; class A { m(a: string): void; m(b: any) { return b } }`);
+    expect(counts.a).toBe(0);
+});
+
+// The flag that marks the next function as a method must not outlive a member
+// whose value is a signature with no body.
+test("review: a function after an overload signature is not a method", () => {
+    const edges = feedsWithMarks(
+        `class A { run(p) { return p } go(a: string): void; x = function () { return this.run(z) } } class B { run(q) { return q } } const z = 1;`);
+    expect(edges).not.toContain("z -> p");
+});
+
+test("review: an inherited this.m() does not resolve to an unrelated class", () => {
+    expect(feedsWithMarks(`class B extends Base { go(x) { this.render(x) } } class C { render(y) {} }`))
+        .not.toContain("x -> y");
+});
+
+test("review: this.m() follows `extends` to a local superclass", () => {
+    const edges = feedsWithMarks(
+        `class Base { render(y) {} } class B extends Base { go(x) { this.render(x) } } class C { render(w) {} }`);
+    expect(edges).toContain("x -> y");
+    expect(edges).not.toContain("x -> w");
+});
+
+test("review: a declaration in a switch case is scoped to the switch", () => {
+    expect(feedsByLine([
+        "const path = 1;",                               // 1
+        "function f(k) { const a = path;",               // 2
+        "  switch (k) { case 1: const path = 2; } }",    // 3
+    ])).toContain("path@1 -> a@2");
+});
+
+test("review: a declaration in a static block is scoped to the block", () => {
+    expect(feedsByLine([
+        "const path = 1;",                                      // 1
+        "function f() { const a = path;",                       // 2
+        "  class K { static { const path = 2; } } }",           // 3
+    ])).toContain("path@1 -> a@2");
+});
+
+test("review: a named function expression's name is not visible outside it", () => {
+    const l = lookups(`const h = function process(x) {}; process.exit(1);`);
+    expect(l.resolved).toBe(0);
+    expect(useCounts(`const g = function fact(n) { return fact(n) }`).fact).toBe(1);
+});
+
+test("review: this.m() in a plain function keeps the built-in method guard", () => {
+    expect(feedsWithMarks(`class Q { push(v) {} } const item = 1; [1].forEach(function () { this.push(item) });`))
+        .not.toContain("item -> v");
+});
+
+test("review: a destructured catch parameter's default is a use", () => {
+    expect(useCounts(`const fallback = 1; try {} catch ({ message = fallback }) {}`).fallback).toBe(1);
+});
+
+test("review: a call on an undeclared receiver is unresolved, not external", () => {
+    expect(lookups(`undeclaredTypo.m();`).external).toBe(0);
+});
+
+test("review: a call on a package import is external, not unresolved", () => {
+    const l = lookups(`import fs from "fs"; import * as ts from "typescript"; fs.readFileSync("x"); ts.createProgram();`);
+    expect(l.unresolved).toBe(0);
+});
+
+test("review: an import never links to a class method of the same name", async () => {
+    const { edges } = await linkFixture({
+        "a.ts": `class P { parse(q) { return q } } export function parse(x) { return x }`,
+        "b.ts": `import { parse } from "./a"; const z = 1; const out = parse(z);`,
+    });
+    expect(edges).toContain("z -> x");
+    expect(edges).not.toContain("z -> q");
+});

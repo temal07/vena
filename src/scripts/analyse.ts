@@ -1,7 +1,7 @@
 import { collectVariables, relativeSpecifierResolver, type SpecifierResolver } from "./engine";
 import { parse } from "@typescript-eslint/typescript-estree";
 import { Glob } from "bun";
-import type { Binding, Graph, GraphEdge, Results } from "./types";
+import type { Binding, Graph, GraphEdge, Occurrence, Results } from "./types";
 import { dirname, isAbsolute, resolve } from "path";
 
 /**
@@ -93,41 +93,59 @@ type PathsConfig = { baseUrl?: string; paths: Record<string, string[]> };
  * declares it relative to *itself*, so the base has to be pinned as each file is
  * read or the meaning drifts with the inheritance chain.
  */
-async function readPathsConfig(dir: string, seen = new Set<string>()): Promise<PathsConfig> {
+async function readPathsConfig(dir: string): Promise<PathsConfig> {
   for (const name of ["tsconfig.json", "jsconfig.json"]) {
-    const configPath = resolve(dir, name);
-    if (seen.has(configPath)) return { paths: {} };       // extends cycle
-    const file = Bun.file(configPath);
-    if (!(await file.exists())) continue;
-    seen.add(configPath);
-
-    let config: any;
-    try { config = parseJsonc(await file.text()); }
-    catch { return { paths: {} }; }                        // malformed: no aliases, not a crash
-
-    // Inherited first, so the child's own settings win on conflict.
-    let result: PathsConfig = { paths: {} };
-    const extendsField = config.extends;
-    for (const parent of Array.isArray(extendsField) ? extendsField : extendsField ? [extendsField] : []) {
-      if (typeof parent !== "string" || !parent.startsWith(".")) continue;   // package extends: not resolvable here
-      const parentDir = dirname(resolve(dir, parent));
-      const inherited = await readPathsConfig(parentDir, seen);
-      result = { baseUrl: inherited.baseUrl ?? result.baseUrl, paths: { ...result.paths, ...inherited.paths } };
-    }
-
-    const options = config.compilerOptions ?? {};
-    if (typeof options.baseUrl === "string") result.baseUrl = resolve(dir, options.baseUrl);
-    if (options.paths && typeof options.paths === "object") {
-      for (const [pattern, targets] of Object.entries(options.paths)) {
-        if (Array.isArray(targets)) result.paths[pattern] = targets as string[];
-      }
-    }
-    // `paths` without `baseUrl` has been legal since TS 4.1, and then targets
-    // are relative to the config file itself.
-    if (Object.keys(result.paths).length && !result.baseUrl) result.baseUrl = dir;
-    return result;
+    const result = await readConfigFile(resolve(dir, name), new Set());
+    if (result) return result;
   }
   return { paths: {} };
+}
+
+/**
+ * One config file by its exact path, plus whatever it `extends`. Undefined when
+ * the file doesn't exist, so the caller can fall through to the next candidate.
+ *
+ * Takes a file, not a directory, because `extends` names a file. Handing the
+ * parent's *directory* back to the tsconfig.json/jsconfig.json search threw the
+ * name away, so `"extends": "./tsconfig.base.json"` — the usual monorepo
+ * spelling — was never read and its aliases were all scored as packages.
+ */
+async function readConfigFile(configPath: string, seen: Set<string>): Promise<PathsConfig | undefined> {
+  if (seen.has(configPath)) return { paths: {} };         // extends cycle
+  const file = Bun.file(configPath);
+  if (!(await file.exists())) return undefined;
+  seen.add(configPath);
+  const dir = dirname(configPath);
+
+  let config: any;
+  try { config = parseJsonc(await file.text()); }
+  catch { return { paths: {} }; }                          // malformed: no aliases, not a crash
+
+  // Inherited first, so the child's own settings win on conflict.
+  let result: PathsConfig = { paths: {} };
+  const extendsField = config.extends;
+  for (const parent of Array.isArray(extendsField) ? extendsField : extendsField ? [extendsField] : []) {
+    if (typeof parent !== "string" || !parent.startsWith(".")) continue;   // package extends: not resolvable here
+    // TypeScript accepts `"extends": "./base"` for `./base.json`.
+    const parentPath = resolve(dir, parent);
+    const inherited =
+      (await readConfigFile(parentPath, seen)) ??
+      (parentPath.endsWith(".json") ? undefined : await readConfigFile(`${parentPath}.json`, seen));
+    if (!inherited) continue;
+    result = { baseUrl: inherited.baseUrl ?? result.baseUrl, paths: { ...result.paths, ...inherited.paths } };
+  }
+
+  const options = config.compilerOptions ?? {};
+  if (typeof options.baseUrl === "string") result.baseUrl = resolve(dir, options.baseUrl);
+  if (options.paths && typeof options.paths === "object") {
+    for (const [pattern, targets] of Object.entries(options.paths)) {
+      if (Array.isArray(targets)) result.paths[pattern] = targets as string[];
+    }
+  }
+  // `paths` without `baseUrl` has been legal since TS 4.1, and then targets
+  // are relative to the config file itself.
+  if (Object.keys(result.paths).length && !result.baseUrl) result.baseUrl = dir;
+  return result;
 }
 
 /**
@@ -289,8 +307,10 @@ function resolveExportedName(
   const results = treeResults[file];
   if (!results) return undefined;
 
+  // A method shares the declarations list but is never what a module exports
+  // by name: `class P { parse() {} }` doesn't publish `parse`.
   const declaredHere = (local: string) =>
-    results.declarations.find((declaration) => declaration.name === local);
+    results.declarations.find((declaration) => declaration.name === local && declaration.methodOf === undefined);
 
   /** Continue into the module `source` names, asking it for `wanted`. */
   const follow = (source: string | undefined, wanted: string) => {
@@ -333,7 +353,7 @@ function resolveExportedName(
 
   // 4. Pre-existing behaviour: any declaration of that name in the file.
   return results.declarations.find(
-    (declaration) => declaration.name === name && declaration.kind !== "import"
+    (declaration) => declaration.name === name && declaration.kind !== "import" && declaration.methodOf === undefined
   );
 }
 
@@ -633,7 +653,12 @@ export async function analyse(projectDir: string): Promise<{
           edge = { source: node.id, target, occurrences: [] };
           edgesByKey.set(key, edge);
         }
-        edge.occurrences.push({ file: use.file, line: use.line, code: codeAt(use.file, use.line) });
+        // Which call this use enters as an argument, and which call's result it
+        // carries out as the callee — one edge can do both, as in `f(g())`.
+        const occurrence: Occurrence = { file: use.file, line: use.line, code: codeAt(use.file, use.line) };
+        if (fed.call !== undefined) occurrence.argOf = fed.call;
+        if (use.call !== undefined) occurrence.resultOf = use.call;
+        edge.occurrences.push(occurrence);
         allInferred.set(key, (allInferred.get(key) ?? true) && fed.inferred === true);
       }
     }

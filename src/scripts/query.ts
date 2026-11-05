@@ -5,7 +5,7 @@
  * Usage: `vena-trace <target> [graph.json] [--back] [--strict] [--depth N] [--max N]`
  *
  * Reads the graph off disk rather than re-running the analysis, so querying
- * is decoupled from the CLI/viewer pipeline: `vena <dir>` produces the graph
+ * is decoupled from the analysis pipeline: `vena` produces the graph
  * once (see its step 5), everything here is a pure consumer of that file.
  *
  * Two questions, one traversal:
@@ -50,7 +50,7 @@ import { relative } from "path";
 // Mirrors the shapes flow.ts serializes — kept local because they describe
 // the on-disk artifact, not the in-memory analysis model in types.ts.
 export type GraphNode = Binding & { id: string };
-export type Occurrence = { file: string; line: number; code: string };
+export type Occurrence = { file: string; line: number; code: string; argOf?: number; resultOf?: number };
 export type GraphEdge = { source: string; target: string; occurrences: Occurrence[]; inferred?: boolean };
 export type Graph = { root: string; nodes: GraphNode[]; edges: GraphEdge[] };
 
@@ -59,6 +59,8 @@ export type Direction = "forward" | "backward";
 /** Defaults chosen for an agent-sized answer, not an exhaustive one. */
 export const DEFAULT_DEPTH = 8;
 export const DEFAULT_MAX = 200;
+/** Calls a trace remembers being inside before it forgets the outermost. */
+export const MAX_CALL_DEPTH = 8;
 
 /**
  * One line of a trace. Flat rather than a tree: `depth` carries the shape, and a
@@ -97,8 +99,23 @@ export type GraphIndex = {
      * Precomputed so a forward visit is a lookup instead of a scan over every
      * function node in the graph.
      */
-    returnedBy: Map<string, GraphNode[]>;
+    returnedBy: Map<string, { fn: GraphNode; returned: Returned }[]>;
+    /** Parameter id -> the function that declares it. */
+    ownerOf: Map<string, GraphNode>;
 };
+
+type Returned = NonNullable<GraphNode["returns"]>[number];
+
+/** The calls whose result a function returns, as `file:offset` sites. The call
+ *  sits inside the returning function, so its file is that function's file. */
+function returnedCalls(fn: GraphNode, returned: Returned): CallSites {
+    return new Set((returned.calls ?? []).map((call) => `${fn.file}:${call}`));
+}
+
+/** A graph written before `returns` said how a name was returned. */
+function untold(returned: Returned): boolean {
+    return returned.direct === undefined && returned.calls === undefined;
+}
 
 function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
     const existing = map.get(key);
@@ -116,15 +133,47 @@ export function indexGraph(graph: Graph): GraphIndex {
         push(incoming, edge.target, edge);
     }
 
-    const returnedBy = new Map<string, GraphNode[]>();
+    const returnedBy = new Map<string, { fn: GraphNode; returned: Returned }[]>();
+    const ownerOf = new Map<string, GraphNode>();
     for (const node of graph.nodes) {
-        if (node.kind !== "function" || !node.returns) continue;
-        for (const returned of node.returns) {
-            push(returnedBy, `${returned.file}:${returned.start}`, node);
+        if (node.kind !== "function") continue;
+        for (const returned of node.returns ?? []) {
+            push(returnedBy, `${returned.file}:${returned.start}`, { fn: node, returned });
+        }
+        for (const param of node.params ?? []) {
+            ownerOf.set(`${param.file}:${param.start}`, node);
         }
     }
 
-    return { byId, outgoing, incoming, returnedBy };
+    return { byId, outgoing, incoming, returnedBy, ownerOf };
+}
+
+/* ------------------------------------------------------------- call matching */
+
+/**
+ * Call sites, each as `file:offset` of the call expression. engine.ts stamps the
+ * offset on two kinds of use — an argument (`argOf`) and a callee (`resultOf`) —
+ * and analyse.ts carries them onto the edge's occurrences. A set, because one
+ * edge can gather the same argument → parameter pair from several calls.
+ */
+type CallSites = Set<string>;
+
+function sitesOf(edge: GraphEdge, role: "argOf" | "resultOf"): CallSites {
+    const sites: CallSites = new Set();
+    for (const o of edge.occurrences) {
+        if (o[role] !== undefined) sites.add(`${o.file}:${o[role]}`);
+    }
+    return sites;
+}
+
+function atSites(edge: GraphEdge, role: "argOf" | "resultOf", sites: CallSites): boolean {
+    return edge.occurrences.some((o) => o[role] !== undefined && sites.has(`${o.file}:${o[role]}`));
+}
+
+/** Some use behind this edge is *not* an argument — a write inside the body
+ *  such as `p = normalise(p)` — so it stays within whatever call we are in. */
+function hasNonArgument(edge: GraphEdge): boolean {
+    return edge.occurrences.some((o) => o.argOf === undefined);
 }
 
 /* --------------------------------------------------------------- addressing */
@@ -202,7 +251,57 @@ export function traverse(
     const visited = new Set<string>();
     const arrow = direction === "forward" ? "->" : "<-";
 
-    function walk(node: GraphNode, depth: number, note: string, inferred = false): void {
+    /**
+     * Calls the trace is currently inside, innermost last. A value that went
+     * into a function through one call can only come back out through that
+     * same call — without this, `sha1(data)` would trace into `createHash` and
+     * back out to `sha256`'s result, because both call it. Entering a call
+     * pushes; leaving it pops. An empty stack means the trace started inside
+     * the function, so every caller is a real way out.
+     *
+     *   forward:  argument -> parameter pushes; `returned by` pops, and keeps
+     *             only the function's edges at that call.
+     *   backward: function -> its `returns` pushes the call we reached the
+     *             function through; parameter <- argument pops, and keeps only
+     *             the arguments at that call.
+     */
+    type Context = { fn: string; sites: CallSites }[];
+
+    const keyOf = (sites: CallSites) => [...sites].sort().join(",");
+
+    /**
+     * Step into a call. Bounded two ways, because without a bound a recursive
+     * function makes every pass a new context and the walk never revisits
+     * anything — only the depth limit stopped it, and a large `--depth`
+     * overflowed the stack. Re-entering a call already on the stack is
+     * recursion and doesn't push again; past MAX_CALL_DEPTH the oldest call is
+     * forgotten, so returning that far out falls back to every caller.
+     */
+    const enter = (context: Context, fn: string, sites: CallSites): Context => {
+        const key = keyOf(sites);
+        if (context.some((entry) => entry.fn === fn && keyOf(entry.sites) === key)) return context;
+        const next = [...context, { fn, sites }];
+        return next.length > MAX_CALL_DEPTH ? next.slice(1) : next;
+    };
+    /** The innermost call, if it is a call to `fn`. A different function's
+     *  return or parameters say nothing about the call we are inside. */
+    const innermostCallTo = (context: Context, fn: GraphNode | undefined) => {
+        const top = context.at(-1);
+        return fn && top?.fn === fn.id ? top.sites : undefined;
+    };
+
+    function walk(
+        node: GraphNode,
+        depth: number,
+        note: string,
+        inferred: boolean,
+        context: Context,
+        /** Forward: arrived at this function through its return — leave only by
+         *  these calls, or by any of them (`"any"`) when no call was entered. */
+        returnTo?: CallSites | "any",
+        /** Backward: holding this function's result at these calls. */
+        enteredBy?: CallSites,
+    ): void {
         // Checked before emitting rather than after, so `maxNodes` is a hard cap
         // on lines produced and not merely on lines expanded.
         if (result.steps.length >= maxNodes) {
@@ -210,11 +309,19 @@ export function traverse(
             return;
         }
 
-        if (visited.has(node.id)) {
+        // The same node reached inside a different call is a different question,
+        // so the context is part of what counts as visited.
+        const key = [
+            node.id,
+            context.map((entry) => `${entry.fn}@${keyOf(entry.sites)}`).join(";"),
+            returnTo === "any" ? "*" : returnTo ? keyOf(returnTo) : "",
+            enteredBy ? keyOf(enteredBy) : "",
+        ].join("|");
+        if (visited.has(key)) {
             result.steps.push({ node, depth, note, revisited: true, inferred });
             return;
         }
-        visited.add(node.id);
+        visited.add(key);
         result.steps.push({ node, depth, note, revisited: false, inferred });
 
         if (depth >= maxDepth) {
@@ -222,34 +329,94 @@ export function traverse(
             return;
         }
 
-        // Direct flow: the same edge set read from whichever end we are walking.
-        const edges = (direction === "forward" ? index.outgoing : index.incoming).get(node.id) ?? [];
-        for (const edge of edges) {
-            if (strict && edge.inferred) continue;
+        const follow = (edge: GraphEdge, nextContext: Context) => {
+            if (strict && edge.inferred) return;
             const next = index.byId.get(direction === "forward" ? edge.target : edge.source);
-            if (!next) continue;
+            if (!next) return;
             const at = edge.occurrences[0];
-            walk(next, depth + 1, at ? `${arrow} via \`${at.code}\` ` : `${arrow} `, edge.inferred === true);
+            const label = at ? `${arrow} via \`${at.code}\` ` : `${arrow} `;
+            if (direction === "forward") {
+                // An argument entering a parameter enters that call. The same
+                // edge can also hold a write inside the body, which doesn't.
+                const owner = next.kind === "param" ? index.ownerOf.get(next.id) : undefined;
+                const entering = owner ? sitesOf(edge, "argOf") : new Set<string>();
+                if (owner && entering.size > 0) {
+                    walk(next, depth + 1, label, edge.inferred === true, enter(nextContext, owner.id, entering));
+                }
+                if (entering.size === 0 || hasNonArgument(edge)) {
+                    walk(next, depth + 1, label, edge.inferred === true, nextContext);
+                }
+            } else {
+                const results = next.kind === "function" ? sitesOf(edge, "resultOf") : undefined;
+                walk(next, depth + 1, label, edge.inferred === true, nextContext,
+                    undefined, results && results.size > 0 ? results : undefined);
+            }
+        };
+
+        // Direct flow: the same edge set read from whichever end we are walking.
+        if (direction === "forward") {
+            let edges = index.outgoing.get(node.id) ?? [];
+            // Back out of a call: only the result of the call we went in through.
+            if (returnTo && returnTo !== "any") edges = edges.filter((edge) => atSites(edge, "resultOf", returnTo));
+            for (const edge of edges) follow(edge, context);
+        } else {
+            const edges = index.incoming.get(node.id) ?? [];
+            const inCall = node.kind === "param" ? innermostCallTo(context, index.ownerOf.get(node.id)) : undefined;
+            if (inCall) {
+                // Writes inside the body stay in this call; arguments leave it,
+                // and only the ones at the call we came in through are real.
+                for (const edge of edges) {
+                    if (hasNonArgument(edge)) follow(edge, context);
+                    if (atSites(edge, "argOf", inCall)) follow(edge, context.slice(0, -1));
+                }
+            } else {
+                for (const edge of edges) follow(edge, context);
+            }
         }
 
         // Interprocedural flow. Forward: the value leaves through the return of
         // any function that hands it back, so continue from that function's own
         // outgoing edges. Backward: we are standing on a function, so what fed it
         // is whatever it returns — read straight off the node.
+        //
+        // What we hold decides which returns apply. `return v` hands back `v`;
+        // `return f(x)` hands back the result of that one call, not `f`. Holding
+        // a call's result (we just left it), only a return of that call counts —
+        // without this, `return down(n - 1)` let a value leave the outer call
+        // and then leave again, to every caller. Starting on a function means
+        // "where do its results go", so every return of it counts there.
+        // Leaving a function the trace started inside (no call to match) means
+        // holding its result from every call, so a return of any call counts —
+        // but not `return f`, which hands back the function, not a result.
         if (direction === "forward") {
-            for (const fn of index.returnedBy.get(node.id) ?? []) {
-                walk(fn, depth + 1, "-> returned by ");
+            for (const { fn, returned } of index.returnedBy.get(node.id) ?? []) {
+                const applies =
+                    untold(returned) ? true :
+                    returnTo === "any" ? returnedCalls(fn, returned).size > 0 :
+                    returnTo ? [...returnTo].some((site) => returnedCalls(fn, returned).has(site)) :
+                    depth === 0 && node.kind === "function" ? true :
+                    returned.direct === true;
+                if (!applies) continue;
+                const inCall = innermostCallTo(context, fn);
+                walk(fn, depth + 1, "-> returned by ", false, inCall ? context.slice(0, -1) : context, inCall ?? "any");
             }
         } else if (node.kind === "function" && node.returns) {
+            // Reached through a call's result: its returns are inside that call.
+            // Reached any other way (`const g = fn`), there is no call to be in.
+            const inner = enteredBy ? enter(context, node.id, enteredBy) : context;
             for (const returned of node.returns) {
                 const next = index.byId.get(`${returned.file}:${returned.start}`);
                 if (!next) continue;
-                walk(next, depth + 1, "<- returns ");
+                // `return f(x)`: what came back is f's result at that call, so f
+                // is entered through it. `return v` (or an older graph): v itself.
+                const calls = returnedCalls(node, returned);
+                if (calls.size > 0) walk(next, depth + 1, "<- returns ", false, inner, undefined, calls);
+                if (calls.size === 0 || returned.direct || untold(returned)) walk(next, depth + 1, "<- returns ", false, inner);
             }
         }
     }
 
-    walk(start, 0, "");
+    walk(start, 0, "", false, []);
     return result;
 }
 
@@ -279,7 +446,7 @@ const USAGE =
     "  <target>      what to trace: file:line (`compose.ts:38`), file:name\n" +
     "                (`compose.ts:res`), or a bare name (`res`). Ambiguous input\n" +
     "                lists the matches with addresses you can paste back.\n" +
-    "  [graph.json]  graph to read (default: ./graph.json, written by `vena <dir>`)\n" +
+    "  [graph.json]  graph to read (default: ./graph.json, written by `vena`)\n" +
     "  --back        where did this value come from? (default: where does it go?)\n" +
     "  --strict      proven edges only — drop flow assumed through unresolved calls\n" +
     `  --depth N     maximum hops (default ${DEFAULT_DEPTH})\n` +
@@ -369,7 +536,7 @@ async function main(): Promise<void> {
 
     const file = Bun.file(graphPath);
     if (!(await file.exists())) {
-        console.error(`vena-trace: no graph at ${graphPath} — run \`vena <directory>\` first`);
+        console.error(`vena-trace: no graph at ${graphPath} — run \`vena\` first`);
         process.exit(1);
     }
 

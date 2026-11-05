@@ -2,11 +2,11 @@
 /**
  * flow.ts — the `vena` CLI.
  *
- * Usage: `vena <directory>`
+ * Usage: `vena [output.json]`
  *
  * This file is the "productionized" counterpart to debug.ts: same pipeline,
- * but as a real CLI (argv parsing, process.exit, browser launch, graceful
- * shutdown on `q`/Ctrl+C) instead of a programmatic entry point.
+ * but as a real CLI (argv parsing, process.exit, reporting what it could not
+ * analyse) instead of a programmatic entry point.
  */
 import { resolve } from "path";
 import { analyse } from "./analyse";
@@ -14,41 +14,33 @@ import { analyse } from "./analyse";
 const USAGE =
     "vena — map how data flows through a TypeScript/JavaScript project.\n" +
     "\n" +
-    "Analyses every source file, links uses to declarations across files, writes the\n" +
-    "graph to disk, and opens a local viewer.\n" +
+    "Analyses every source file in the current directory, links uses to declarations\n" +
+    "across files, and writes the graph to disk.\n" +
     "\n" +
-    "Usage: vena <directory> [output.json]\n" +
-    "  <directory>    project to analyse — scans .ts .tsx .js .jsx .mjs .cjs\n" +
+    "Usage: vena [output.json]\n" +
+    "  scans .ts .tsx .js .jsx .mjs .cjs in the working directory\n" +
     "  [output.json]  where to write the graph (default: ./graph.json)\n" +
     "\n" +
     "Then trace individual values with `vena-trace <target> [graph.json] --back`.";
 
-const targetArg = Bun.argv[2];
+const outArg = Bun.argv[2];
 
-// Handled before the empty check so `--help` prints on stdout and exits 0. It
-// used to fall through to `resolve()` and die on an ENOENT stack trace, which
-// is the first thing a new user types.
-if (targetArg === "--help" || targetArg === "-h") {
+// `--help` used to fall through to `resolve()` and die on an ENOENT stack
+// trace, which is the first thing a new user types.
+if (outArg === "--help" || outArg === "-h") {
     console.log(USAGE);
     process.exit(0);
 }
 
-if (!targetArg) {
-    console.error(USAGE);
-    process.exit(1);
-}
-
-const projectDir = resolve(process.cwd(), targetArg);
+const projectDir = process.cwd();
 
 const { graph, filesAnalysed, skipped, unlinkedImports } = await analyse(projectDir);
-// Serialized once and used twice: written to disk below, and served verbatim
-// to the viewer. Left compact deliberately — indenting this graph costs ~45%
-// more bytes (16.2MB vs 11.2MB on this repo) on both paths, and nothing reads
-// it by eye. Use `jq . graph.json` when you do need to.
+// Left compact deliberately — indenting this graph costs ~45% more bytes
+// (16.2MB vs 11.2MB on this repo), and nothing reads it by eye. Use `jq . graph.json` when you do need to.
 const graphJson = JSON.stringify(graph);
 
 // Write the graph to a JSON file.
-const outPath = resolve(process.cwd(), Bun.argv[3] ?? "graph.json");
+const outPath = resolve(process.cwd(), outArg ?? "graph.json");
 await Bun.write(outPath, graphJson);
 console.log(`vena: analysed ${filesAnalysed} files.`);
 // Every skipped file is a hole in the graph. Saying so here is the whole point
@@ -87,52 +79,3 @@ if (inferredEdges > 0) {
 
 console.log(`vena: wrote graph to ${outPath}`);
 
-// Serve the graph viewer and the graph JSON file. and open it in the browser.
-const viewerDir = new URL("../viewer/", import.meta.url).pathname;
-
-const viewerFiles: Record<string, string> = {
-    "/": "index.html",
-    "/index.html": "index.html",
-    "/style.css": "style.css",
-    "/app.js": "app.js",
-    "/lib/cytoscape.min.js": "lib/cytoscape.min.js",
-};
-
-const server = Bun.serve({
-    port: 0,
-    fetch(req) {
-        const { pathname } = new URL(req.url);
-
-        if (pathname === "/graph.json") {
-            return new Response(graphJson, { headers: { "Content-Type": "application/json" } });
-        }
-
-        const rel = viewerFiles[pathname];
-        if (rel) {
-            return new Response(Bun.file(viewerDir + rel));
-        }
-
-        return new Response("Not found", { status: 404 });
-    },
-});
-
-console.log(`vena: serving graph viewer at ${server.url}`);
-
-const openCommand = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-Bun.spawn([openCommand, server.url.toString()], { stdout: "ignore", stderr: "ignore" });
-
-console.log("vena: press q + Enter to stop (or Ctrl+C)");
-
-function shutdown() {
-    server.stop();
-    process.exit(0);
-}
-
-process.stdin.on("data", (data) => {
-    const input = data.toString().trim().toLowerCase();
-    if (input === "q" || input === "quit" || input === "exit") {
-        shutdown();
-    }
-});
-
-process.on("SIGINT", shutdown);

@@ -1,8 +1,8 @@
 # vena
 
-Formerly named 'flowdata', it traces how data flows through a TypeScript/JavaScript codebase, rendered as an interactive graph.
+Formerly named 'flowdata', it traces how data flows through a TypeScript/JavaScript codebase, and lets you trace any value forward or backward from the terminal.
 
-Point it at a project and vena parses every file, resolves scope, links uses to declarations across files, and follows values as they flow from one variable into another. Click any symbol to see where it's declared, where it's used, and what it feeds into.
+Run it in a project and vena parses every file, resolves scope, links uses to declarations across files (following re-exports and tsconfig `paths` aliases), and follows values as they flow from one variable into another. Then ask where any value came from, or where it ends up.
 
 Pain point it solves: As the codebase for my project, Resurface, grew, it eventually became harder for me to create a mental map in my head of all the input/output data. So, I started this project and am actively working on it. 
 
@@ -20,13 +20,13 @@ bun install
 
 ## Usage
 
-### Build the graph and open the viewer
+### Build the graph
 
 ```bash
-vena ./path/to/project
+vena [output.json]
 ```
 
-vena scans for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files, analyzes them, writes `graph.json`, and opens a local graph viewer. Search for a symbol to reveal it and its connections; click a node for its declaration site and every use.
+Run from the project directory. vena scans for `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files, analyzes them, and writes the graph to `graph.json` (or the path you pass). It reports any files it couldn't parse, any in-project imports it couldn't link, and how many edges are proven versus inferred.
 
 ### Trace a value from the terminal
 
@@ -60,8 +60,7 @@ Hops marked `~inferred` are assumed rather than proven — the value passed thro
 | Path | What's there |
 | --- | --- |
 | [`src/scripts/`](src/scripts/README.md) | The analysis engine itself — AST walker, CLI, dev utilities. **Start with [`src/scripts/README.md`](src/scripts/README.md)** for a guided tour. |
-| [`src/viewer/`](src/viewer) | The static, dependency-free graph viewer (Cytoscape.js) that `flow.ts` serves the graph JSON to. |
-| [`src/tests/`](src/tests) | Small fixture files used by the engine's dev utilities (`tree.ts`, `debug.ts`). |
+| [`src/tests/`](src/tests) | The `bun test` suite — engine and query tests, including end-to-end runs of `analyse` on temporary projects — plus a small fixture for the dev utilities. |
 | [`src/mds/`](src/mds) | Project docs: [`NOTES.md`](src/mds/NOTES.md) (living dev notes — feature status, known limitations, deferred issues), [`ARCHITECTURE.md`](src/mds/ARCHITECTURE.md), and [`CLAUDE.md`](src/mds/CLAUDE.md). |
 
 ## Testing
@@ -74,9 +73,9 @@ bun test
 
 Early and under active development.
 
-**Works today:** multi-file extraction, scope resolution, cross-file import linking, intraprocedural data-flow edges, and argument → parameter flow across function calls.
+**Works today:** multi-file extraction (including JSX), scope resolution with forward references (for uses and for calls), cross-file import linking through re-export chains and tsconfig `paths` aliases, data-flow edges within and across functions (argument → parameter → return → call site), method-call resolution by receiver where it can be known, and forward/backward tracing with `vena-trace` that returns each value only to the call it came through.
 
-**Coming:** return-value flow back to call sites (full interprocedural), method-call resolution (`obj.method()`), use-before-declaration support, and an MCP server for agents.
+**Coming:** flow through object fields (`this.x = y`) and an MCP server for agents. See [`NOTES.md`](src/mds/NOTES.md) for every known gap.
 
 ## Internals
 
