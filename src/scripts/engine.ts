@@ -515,14 +515,19 @@ function resolvePendingCalls(results: Results): void {
     if (pendingCalls.length === 0 && pendingCallees.length === 0 && pendingTargets.length === 0) return;
 
     const answers = new Map<number, Feed[]>();
+    const deferred: { entry: Results["deferredCallFeeds"][number]; fallback: Binding[] }[] = [];
     for (const call of pendingCalls) {
         const { callee } = resolveSite(call.site);
         const name = call.site.name;
         // The callee is imported — found late or not, its parameters live in
         // another file. Leave the placeholder in place and queue it for gap 16's
-        // resolution in analyse.ts.
+        // resolution in analyse.ts, with the gap 18 pass-through to use if that
+        // finds no parameter. The fallback is expanded below, once every
+        // placeholder in this file has an answer.
         if (callee?.kind === "import") {
-            results.deferredCallFeeds.push({ callee, argIndex: call.argIndex, id: call.id });
+            const entry = { callee, argIndex: call.argIndex, id: call.id, fallback: [] };
+            results.deferredCallFeeds.push(entry);
+            deferred.push({ entry, fallback: call.fallback });
             trace("resolve", `call ${name}(arg ${call.argIndex}) -> import, resolved across files later`);
             continue;
         }
@@ -565,6 +570,10 @@ function resolvePendingCalls(results: Results): void {
         const expanded = answer.flatMap(expand);
         return fed.inferred ? expanded.map((e) => ({ ...e, inferred: true })) : expanded;
     };
+
+    for (const { entry, fallback } of deferred) {
+        entry.fallback = fallback.map((target) => feedOf(target, true)).flatMap(expand);
+    }
 
     for (const declaration of results.declarations) {
         for (const use of declaration.uses) {

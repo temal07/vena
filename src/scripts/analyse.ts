@@ -1,8 +1,10 @@
 import { collectVariables, relativeSpecifierResolver, type SpecifierResolver } from "./engine";
 import { parse } from "@typescript-eslint/typescript-estree";
 import { Glob } from "bun";
-import type { Binding, Graph, GraphEdge, Occurrence, Results } from "./types";
+import type { Binding, Graph, GraphEdge, Occurrence, Results, Use } from "./types";
 import { dirname, isAbsolute, resolve } from "path";
+
+type Feed = NonNullable<Use["feeds"]>[number];
 
 /**
  * Directories that are never the user's own source. Without this a plain
@@ -528,6 +530,15 @@ export async function analyse(projectDir: string): Promise<{
 
   /** Gap 16: placeholder node id → the parameter it turned out to mean. */
   const deferredFeedResolutions = new Map<string, Binding>();
+  // Every deferred argument's gap 18 pass-through, used when the import never
+  // yields a parameter — a package, an unlinked import, or no parameter at
+  // that position. Filled up front, so each skip below falls back to it.
+  const deferredFallbacks = new Map<string, Feed[]>();
+  for (const fileResults of Object.values(treeResults)) {
+    for (const d of fileResults.deferredCallFeeds) {
+      deferredFallbacks.set(nodeId(d.callee.file, d.id), d.fallback);
+    }
+  }
 
   for (const fileResults of Object.values(treeResults)) {
     for (const binding of fileResults.declarations) {
@@ -586,25 +597,41 @@ export async function analyse(projectDir: string): Promise<{
   // Step 2b (gap 16): rewrite the deferred feed entries now that every import
   // that could be linked has been. One pass over every use rather than a scan
   // per deferral — there are far more uses than deferrals, and this way the
-  // cost is paid once. A placeholder with no resolution is left as it is: its
-  // negative start can't match any node id, so step 4's `nodeIds.has(target)`
-  // guard drops it and the call site simply produces no edge, exactly as
-  // before this gap was fixed.
+  // cost is paid once.
+  //
+  // A placeholder with no parameter passes through to its fallback, as gap 18
+  // does for any call it can't resolve — `out = resolve(x)` with `resolve`
+  // from "path" used to give no edge at all, while `out = atob(x)` gave
+  // `~x -> out`. The fallback can hold another import's placeholder
+  // (`known(pkg(x))`), hence the recursion; it only ever points outward, so it
+  // can't cycle. Anything left unanswered keeps its negative start, which step
+  // 4's `nodeIds.has(target)` guard drops.
+  const expandDeferred = (fed: Feed): Feed[] => {
+    // if fed.start < 0, this is the <blank> that we set in engine.ts
+    if (fed.start >= 0) return [fed];
+    const key = nodeId(fed.file, fed.start);
+    const realParam = deferredFeedResolutions.get(key);
+    if (realParam) {
+      return [{ ...fed, name: realParam.name, file: realParam.file, line: realParam.line, start: realParam.start }];
+    }
+    const fallback = deferredFallbacks.get(key);
+    if (!fallback) return [fed];
+    return fallback.flatMap(expandDeferred).map((e) => ({ ...e, inferred: true }));
+  };
+
   for (const fileResults of Object.values(treeResults)) {
     for (const declaration of fileResults.declarations) {
       for (const use of declaration.uses) {
-        if (!use.feeds) continue;
-        for (const fed of use.feeds) {
-          // if fed.start < 0, this is the <blank> that we set in engine.ts
-          if (fed.start >= 0) continue;
-          // Get the key value pair HERE with the key set above.
-          const realParam = deferredFeedResolutions.get(nodeId(fed.file, fed.start));
-          if (!realParam) continue;
-          fed.name = realParam.name;
-          fed.file = realParam.file;
-          fed.line = realParam.line;
-          fed.start = realParam.start;
+        if (!use.feeds?.some((fed) => fed.start < 0)) continue;
+        // One entry per target, proven if any route to it was — the same rule
+        // the engine applies to its own placeholders.
+        const byTarget = new Map<string, Feed>();
+        for (const fed of use.feeds.flatMap(expandDeferred)) {
+          const key = nodeId(fed.file, fed.start);
+          const seen = byTarget.get(key);
+          if (!seen || (seen.inferred && !fed.inferred)) byTarget.set(key, fed);
         }
+        use.feeds = [...byTarget.values()];
       }
     }
   }

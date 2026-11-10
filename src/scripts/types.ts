@@ -261,8 +261,12 @@ export interface Results {
      * params to feed weren't knowable during walk-time. Resolved in step 2
      * of analyse.ts, once the import's been linked to the file that actually 
      * declares the function.
+     *
+     * `fallback` is where the argument goes if that never happens — a package
+     * import, or no parameter at `argIndex`: gap 18's pass-through to the
+     * enclosing targets, already expanded within the file and all inferred.
      */
-    deferredCallFeeds: { callee: Binding; argIndex: number; id: number }[];
+    deferredCallFeeds: { callee: Binding; argIndex: number; id: number; fallback: NonNullable<Use["feeds"]> }[];
 }
 
 /**
