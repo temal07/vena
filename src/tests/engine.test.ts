@@ -550,6 +550,57 @@ test("an argument with no matching parameter is dropped, not misrouted", async (
     })).toEqual(["p -> a"]);
 });
 
+// A deferred argument that never finds a parameter falls back to gap 18's
+// pass-through, exactly as a call that was never deferred would. It used to
+// vanish, so every call into a package (`path`, `fs`, any npm import) dropped
+// its arguments while built-ins like `atob` kept theirs.
+/** Like crossFileEdges, with `~` marking inferred edges. */
+async function crossFileEdgesMarked(files: Record<string, string>): Promise<string[]> {
+    const dir = await fixtureDir(files);
+    const { graph } = await analyse(dir);
+    const nameById = new Map(graph.nodes.map((n) => [n.id, n.name]));
+    const names = graph.edges.map((e) => `${e.inferred ? "~" : ""}${nameById.get(e.source)} -> ${nameById.get(e.target)}`);
+    await rm(dir, { recursive: true, force: true });
+    return names.sort();
+}
+
+test("an argument to a package import passes through, inferred", async () => {
+    expect(await crossFileEdgesMarked({
+        "main.ts": `import { resolve } from "path"; const x = "a"; const out = resolve(x);`,
+    })).toEqual(["~x -> out"]);
+});
+
+test("a package call nested in another argument passes through to it", async () => {
+    expect(await crossFileEdgesMarked({
+        "main.ts": `import { resolve } from "path"; const x = "a"; const out = resolve("b", x ?? "c");`,
+    })).toEqual(["~x -> out"]);
+});
+
+test("an argument with no parameter on a linked import passes through, inferred", async () => {
+    expect(await crossFileEdgesMarked({
+        "util.ts": `export function one(a) { return a }`,
+        "main.ts": `import { one } from "./util"; const p = 1; const q = 2; const r = one(p, q);`,
+    })).toContain("~q -> r");
+});
+
+// The fallback can be another import's placeholder: `q` passes through the
+// package call into `known`'s parameter. Inferred, since it crossed `pkg`.
+test("a package call inside a linked import call reaches its parameter, inferred", async () => {
+    expect(await crossFileEdgesMarked({
+        "util.ts": `export function known(k) { return k }`,
+        "main.ts": `import { known } from "./util"; import { pkg } from "pkg"; const q = 1; known(pkg(q));`,
+    })).toEqual(["~q -> k"]);
+});
+
+// The other way round, `x` lands on a real parameter: that is proven, and the
+// pass-through of the result is a separate edge.
+test("a linked import call inside a package call stays proven", async () => {
+    expect(await crossFileEdgesMarked({
+        "util.ts": `export function known(k) { return k }`,
+        "main.ts": `import { known } from "./util"; import { pkg } from "pkg"; const x = 1; const y = pkg(known(x));`,
+    })).toEqual(["x -> k", "~known -> y"]);
+});
+
 // Each call site and each argIndex needs its own placeholder. Share one and
 // these two tests are what catches it — the first would collapse to a single
 // edge, the second would cross-wire s and t onto the same parameter.
