@@ -17,7 +17,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Argument → parameter flow (v1.2)             | ⚠️ 26.6% of call sites wire — see gap 16   |
 | Argument flow through an unknown callee      | ✅ Passes through, marked `inferred` — gap 18 |
 | Return capture (`returns` on function nodes) | ✅ Done                                    |
-| Object field flow (`this.x = y`)             | ❌ Not tracked at all — see gap 20         |
+| Object field flow (`this.x = y`)             | ⚠️ `this.x` in classes done — other receivers open, gap 20 |
 | Graph output (`vena`, writes `graph.json`)   | ✅ Done — viewer removed November 2026     |
 | Query/traversal layer (`query <target>`)     | ✅ Forward + backward, addressable, bounded |
 | Forward references                           | ✅ For uses (gap 2) and callees (gap 19)    |
@@ -31,7 +31,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Runs on a *large* repo                       | ✅ 8,144 files, 0 parse failures, 23 s — but 1.2 GB graph |
 | Answer size at scale                         | ✅ p90 = 10 nodes, flat from 309 to 8,144 files |
 | JSX / `.tsx` support                         | ✅ Done — `.ts` stays non-JSX, see gap 13  |
-| Automated tests                              | ⏳ Partial — 193 tests across 2 files      |
+| Automated tests                              | ⏳ Partial — 208 tests across 2 files      |
 | Answers real questions end to end            | ✅ 19/20 on Hono, **0 wrong** — only Q9 (gap 20) left; modular repos not re-scored, BENCHMARK.md |
 | MCP wrapper                                  | ⏸ On hold — see item 3 in Next up         |
 
@@ -40,7 +40,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 
 ## What works
 
-Most of these are guarded by `bun test` (193 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
+Most of these are guarded by `bun test` (208 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
 
 **Scope and shadowing.** `const x = 1; function f() { const x = 2; const y = x }` — the inner `x` feeds `y`; the outer `x` is untouched.
 
@@ -670,7 +670,7 @@ Twelve tests in `engine.test.ts`; nine fail without the fix, three guard what mu
 
 ---
 
-### 20. Object fields carry no flow
+### 20. Object fields carry no flow — ✅ RESOLVED for `this` fields (November 2026)
 
 `this.x = y` produces no edge, and neither does a read of `this.x`. Nothing in the walker treats a member expression as a flow target.
 
@@ -693,6 +693,36 @@ Only one of twenty benchmark questions, so it ranks below gaps 18 and 19. But it
 | vscode `src` | **25,445** | **10,764** |
 
 Every one of those 25,445 is a missing edge. Tracing `path` in `vs/base/common/uri.ts` returns four within-file edges and stops, because the value goes into `this.path` and there is no node for it. On a DI/class-structured codebase this is not an item ranked below gaps 18 and 19 — it is the difference between a graph and no graph. The design question is unchanged; what changed is that the answer now decides whether whole categories of repo are in scope at all.
+
+**Fixed for `this`, November 2026.** A field is one node (`kind: "field"`) per class and name. `this.x = y` feeds it, proven; a read of `this.x` carries it wherever the expression goes, exactly as an identifier would — into a variable, an argument, or the method's `returns`. Three things declare one: a class property (`x = init`, whose initialiser feeds it), a parameter property (`constructor(private x)`, whose parameter feeds it), or, failing both, the first `this.x =` write.
+
+The design decisions, since this was the open question:
+
+- **Keyed by class, not by name.** Two classes with an `f` are two fields. Matching `obj.x` by name alone is gap 1's collision problem, so the only receiver handled is `this`, whose class is known. `this` follows the existing gap 1 rule: methods, field initialisers and arrows inside them; not a plain nested function.
+- **Inheritance within the file.** A `this.x` belongs to the topmost class up the in-file `extends` chain that declares `x`, else the topmost that writes it — a subclass writing an inherited field writes the same property. Resolved after the walk (gap 8's rule), so a superclass further down the file still counts.
+- **A read alone makes no field.** `this.render` with no write is a method or getter, or comes from a superclass in another file; inventing a node would join reads that share nothing but a name. Those reads stay edgeless, as before.
+- **`#x` and `x` are different fields.** Static properties are not instance fields and get none.
+
+Two bugs fell out on the way. A class property's key was walked as a read, so `class C { x = 2 }` recorded a use of any outer `x` (the gap 6/9 rule, unenforced in a third place). And `collectPatternNames` ignored `TSParameterProperty`, so `constructor(private a, b)` had params `[b]`, putting the first argument on the wrong parameter.
+
+**A regression the real repos caught, not the tests.** Fields share the declarations list, and the export lookup took the first declaration with the wanted name. Hono's `Factory` class has a `createMiddleware` field beside the exported `createMiddleware` function, so all 152 edges out of the function moved onto the field. The export lookup now skips class members, fields as well as methods; a test guards it.
+
+**Measured old engine vs new on the same checkouts** (Hono and excalidraw `master`, shallow clones, November 2026):
+
+| | fields | edges | removed | added |
+| --- | --- | --- | --- | --- |
+| Hono, 425 files | 150 | 12,347 → 12,487 | 0 | 140, all touching a field |
+| excalidraw, 704 files | 671 | 39,921 → 41,165 | 0 | 1,244, all touching a field |
+
+Ten added excalidraw edges sampled at random all matched the source. **Hono Q9 now answers:** `status` (param, 55) → `status` (field, 48) → `newResponse` → `getResponse`'s return; it used to stop at the parameter.
+
+**Still open — the rest of gap 20:**
+
+- **Other receivers.** `context.res = res` (compose.ts) and `obj.x` generally need to know which object a name holds. Untouched.
+- **`new C(x)` → the constructor.** `new` is still walked as a plain expression, so the argument flows straight into the result, proven. Wiring it to the constructor's parameters is the natural next step; it changes what `x` reaches, so it was left out of this change.
+- **Writes through a field's value.** `this.items.push(x)` doesn't reach `items`.
+- **Superclasses in other files.** The `extends` chain stops at an import, so a field inherited across files gets no node from its reads.
+- **Getters** — `this.x` reading a `get x()` produces nothing, as before.
 
 ---
 
@@ -935,7 +965,7 @@ The lesson worth carrying, third version: ranked by resolution rate → call-sit
 
 Gap 18 came off this list on August 17, the same day it was filed — it was item 1, and the benchmark re-score took 11/20 to 15/20. Gaps 21 + 22 came off it in November 2026; re-measuring excalidraw's linkage is what will say whether they moved the 44%. Gap 19 followed, with gap 23 — which it surfaced — fixed alongside; the benchmark is at 19/20, and the one miss left is gap 20. Gaps 1 + 8 followed, together, and with them the last known source of wrong edges.
 
-1. **Gap 20 — object field flow, moved to the top by BENCHMARK.md #4.** The hard-question rerun on excalidraw found no agent win either, and the reason was coverage, not delivery: on 6 of 8 real questions the path ran through `this.x` fields, getters, React context, callback props or a shared `Scene` — and the graph stopped at the first one. Includes deciding whether state written in one event and read in another (#4's E2) counts as flow. Earlier assessment, still true: Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
+1. **Gap 20 — object field flow, moved to the top by BENCHMARK.md #4. `this` fields done November 2026; what remains is listed under gap 20 — other receivers and `new` → constructor first. Re-running #4's eight questions is what says whether `this` alone moved it.** The hard-question rerun on excalidraw found no agent win either, and the reason was coverage, not delivery: on 6 of 8 real questions the path ran through `this.x` fields, getters, React context, callback props or a shared `Scene` — and the graph stopped at the first one. Includes deciding whether state written in one event and read in another (#4's E2) counts as flow. Earlier assessment, still true: Still the largest design question of the three gaps filed on August 17 — fields need somewhere to live as nodes, and `obj.x` across unrelated objects is the same collision problem gap 1 has with methods. What #2 changed is the stakes, not the design: 25,445 `this.x =` assignments across 10,764 classes on vscode. On class-structured code this is not a ranked refinement, it is whether there is a graph at all — so the decision also decides which repo shapes are in scope.
 2. **Gap 24** — walk up to the nearest tsconfig. Small, and it decides whether gaps 21 and 22 help at all from a subdirectory.
 3. **MCP wrapper** — *on hold, November 3 2026: #3 measured no agent benefit, so packaging for agents waits on the hard-question rerun above.* Unblocked as of gap 17. `query.ts` now has backward traversal, addressable nodes, bounded output, and exported pure functions (`resolveTarget`, `traverse`) that a server can call directly instead of shelling out. What is left is the server itself and a decision about what the tool surface should be — bounded traversals, not "here is the graph." Worth doing before the items below it: BENCHMARK.md measures whether the graph *contains* the answers, and the wrapper is what would let something measure whether an agent gets *better* with them. **Two things #2 adds to this item:** it must sit on an on-disk index rather than `JSON.parse` (see the re-measured Launch timing — 2.7s and 4.1GB per query on vscode), and the tool surface should be scoped to cross-file provenance, because #2's head-to-head says an agent reading the function beats a within-file trace.
 4. **Extend `KNOWN_GLOBALS`** — the cheapest coverage left, and the residue analysis is what surfaced it. Of Hono's 1,017 unresolved lookups, roughly half are names nothing in the project declares (`isArray` 53, `charCodeAt` 40, `create` 31, `at` 29, `Uint8Array` 15) — a thin globals list, not a walker failure. Editing a list would take the rate to about 95%. Note gap 18 already changed what this is worth: those 719 dropped arguments are now passed through, so extending the globals list no longer recovers edges — it converts `inferred` edges into proven ones, which is a different and arguably better payoff.

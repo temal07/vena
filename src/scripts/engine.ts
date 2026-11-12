@@ -179,6 +179,28 @@ let methodBindings: { binding: Binding; scope: Scope }[] = [];
 let classSupers = new Map<number, { name: string; chain: Scope[] }>();
 
 /**
+ * Gap 20: instance fields. A field is one node per class and name, and exists
+ * only once something declares or writes it — a class property, a parameter
+ * property, or `this.x =`. A read alone never makes one: `this.render` with no
+ * write is a method or getter, or comes from a class in another file, and
+ * guessing would invent a node.
+ *
+ * Which class a `this.x` belongs to waits for the walk to finish, like every
+ * other name (gap 8): a subclass can read a field its superclass declares
+ * further down the file.
+ */
+/** Fields declared outright, keyed `${class}:${name}`. */
+let declaredFields = new Map<string, Binding>();
+/** Every field name each class declares or writes, keyed by class. */
+let fieldNames = new Map<number, Set<string>>();
+/** `this.x = …` — the write's placeholder id, rewritten to the field. */
+type FieldWrite = { cls: number; name: string; property: TSESTree.Node; id: number };
+let fieldWrites: FieldWrite[] = [];
+/** A read of `this.x`, attached to the field once it is known. */
+type FieldRead = { cls: number; use: Use; inReturnStatement: boolean; fn: Binding | null };
+let fieldReads: FieldRead[] = [];
+
+/**
  * A shallow copy of the scope stack, shared between every note filed while the
  * stack is unchanged. Deferring every lookup files a note per identifier, and a
  * copy each would be the cost. Same length and same top scope means the same
@@ -281,6 +303,95 @@ function resolveMethod(site: CallSite): MethodAnswer {
     }
     if (methods.length !== 1 || BUILTIN_METHODS.has(site.name)) return { external: false };
     return { callee: methods[0], external: false };
+}
+
+/** The class `cls` extends, when that is a class declared in this file. */
+function superclassOf(cls: number): number | undefined {
+    const parent = classSupers.get(cls);
+    const holder = parent && lookup(parent.name, parent.chain);
+    return holder?.kind === "class" ? holder.start : undefined;
+}
+
+/** The name a non-computed member key or property stands for, as a field:
+ *  `#x` keeps its `#`, since `this.#x` and `this.x` are different fields. */
+function fieldNameOf(key: TSESTree.Node): string | undefined {
+    if (key.type === "Identifier") return key.name;
+    if (key.type === "PrivateIdentifier") return `#${key.name}`;
+    return undefined;
+}
+
+function noteFieldName(cls: number, name: string): void {
+    let names = fieldNames.get(cls);
+    if (!names) fieldNames.set(cls, names = new Set());
+    names.add(name);
+}
+
+/** A field declared outright on `cls`, its node at `at` (a key, or the
+ *  parameter property). Kept out of every scope; see `declaredFields`. */
+function declareField(cls: number, name: string, at: TSESTree.Node, results: Results): Binding {
+    const field = makeBinding(at, "declaration", "field");
+    field.name = name;
+    field.fieldOf = cls;
+    declaredFields.set(`${cls}:${name}`, field);
+    noteFieldName(cls, name);
+    results.declarations.push(field);
+    trace("declare", `${name} (field) at offset ${field.start}`);
+    return field;
+}
+
+/**
+ * The class whose field `this.name` in `cls` is: the topmost class up the
+ * in-file `extends` chain that declares it, or failing that the topmost that
+ * writes it. Topmost, because a subclass writing an inherited field writes the
+ * same property. Undefined when nothing in the chain declares or writes it.
+ */
+function fieldOwner(cls: number, name: string): number | undefined {
+    let declared: number | undefined;
+    let written: number | undefined;
+    const seen = new Set<number>();
+    for (let c: number | undefined = cls; c !== undefined && !seen.has(c); c = superclassOf(c)) {
+        seen.add(c);
+        if (declaredFields.has(`${c}:${name}`)) declared = c;
+        if (fieldNames.get(c)?.has(name)) written = c;
+    }
+    return declared ?? written;
+}
+
+/**
+ * Gap 20, after the walk: give every field a node, point each write's
+ * placeholder at it, and attach each read. A field nothing declares gets its
+ * node at its first write in the owning class's chain — a real identifier
+ * position, so its id can't collide with a declaration's.
+ */
+function resolveFields(results: Results): Map<number, Feed[]> {
+    const answers = new Map<number, Feed[]>();
+    const fields = new Map(declaredFields);
+    const fieldFor = (cls: number, name: string, at?: TSESTree.Node): Binding | undefined => {
+        const owner = fieldOwner(cls, name);
+        if (owner === undefined) return undefined;
+        const key = `${owner}:${name}`;
+        let field = fields.get(key);
+        if (!field && at) {
+            field = makeBinding(at, "declaration", "field");
+            field.name = name;
+            field.fieldOf = owner;
+            fields.set(key, field);
+            results.declarations.push(field);
+        }
+        return field;
+    };
+
+    // In source order, so an undeclared field's node is its first write.
+    for (const write of [...fieldWrites].sort((a, b) => a.property.range[0] - b.property.range[0])) {
+        const field = fieldFor(write.cls, write.name, write.property)!;
+        answers.set(write.id, [feedOf(field, false)]);
+        trace("resolve", `this.${write.name} = … -> field at offset ${field.start}`);
+    }
+    for (const read of fieldReads) {
+        const field = fieldFor(read.cls, read.use.name);
+        if (field) attachUse(field, read.use, read.inReturnStatement, read.fn);
+    }
+    return answers;
 }
 
 function resolveSite(site: CallSite): MethodAnswer {
@@ -446,6 +557,10 @@ export function collectVariables(
     nextFunctionIsMethod = false;
     methodBindings = [];
     classSupers = new Map();
+    declaredFields = new Map();
+    fieldNames = new Map();
+    fieldWrites = [];
+    fieldReads = [];
     chainCache = null;
     // Same reasoning for the walk state. A balanced walk leaves both at their
     // initial value anyway; resetting means a file that threw mid-walk can't
@@ -490,8 +605,9 @@ export function collectVariables(
     }
 
     // Must run after the pending-use retry above: a use that resolved late was
-    // attached there, and its feeds can hold a placeholder too.
-    resolvePendingCalls(results);
+    // attached there, and its feeds can hold a placeholder too. Fields first,
+    // since a field read's feeds can hold one as well.
+    resolvePendingCalls(results, resolveFields(results));
 
     const { resolved, unresolved, external } = results.lookups;
     trace("phase", `walk finished — ${resolved} resolved, ${unresolved} unresolved, ${external} external`);
@@ -511,10 +627,12 @@ export function collectVariables(
  * ever points outward. Passing through a fallback marks everything beneath it
  * inferred, the same as gap 18 does when the walk passes through directly.
  */
-function resolvePendingCalls(results: Results): void {
-    if (pendingCalls.length === 0 && pendingCallees.length === 0 && pendingTargets.length === 0) return;
+function resolvePendingCalls(results: Results, fieldAnswers: Map<number, Feed[]>): void {
+    if (pendingCalls.length === 0 && pendingCallees.length === 0 && pendingTargets.length === 0 && fieldAnswers.size === 0) return;
 
-    const answers = new Map<number, Feed[]>();
+    // Field writes (gap 20) are answered already; their placeholders are
+    // rewritten by the same pass as everything else.
+    const answers = new Map<number, Feed[]>(fieldAnswers);
     const deferred: { entry: Results["deferredCallFeeds"][number]; fallback: Binding[] }[] = [];
     for (const call of pendingCalls) {
         const { callee } = resolveSite(call.site);
@@ -944,6 +1062,18 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             collectPatternNames(param, paramDeclarations, "param", "N/A");
         }
         
+        // constructor(private x) — gap 20. The parameter is an ordinary one,
+        // and also declares field `x` and feeds it. The field's node is the
+        // whole parameter property, so it can't share the parameter's id.
+        const cls = nextFunctionIsMethod ? classStack[classStack.length - 1] : undefined;
+        for (const param of node.params) {
+            if (param.type !== "TSParameterProperty" || cls === undefined) continue;
+            const id = param.parameter.type === "AssignmentPattern" ? param.parameter.left : param.parameter;
+            if (id.type !== "Identifier") continue;
+            const field = declareField(cls, id.name, param, results);
+            const declared = paramDeclarations.find((p) => p.start === id.range[0]);
+            declared?.uses.push({ ...makeUse(id), feeds: [feedOf(field, false)] });
+        }
         // if there is a funcBinding, set it to the filled paramDeclarations list.
         if (funcBinding) {
             funcBinding.params = paramDeclarations;
@@ -1117,6 +1247,29 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         return;
     }
 
+    // class R { x = init } — gap 20. The key is the field's name, not a read
+    // of anything (it used to be walked as one, so `x = 1` recorded a use of
+    // whatever `x` was in scope). The initialiser feeds the field. A static
+    // property isn't an instance field: only its value is walked.
+    if (node.type === "PropertyDefinition" || node.type === "TSAbstractPropertyDefinition") {
+        if (node.computed) walkVariables(node.key, results, stack);
+        const cls = classStack[classStack.length - 1];
+        const name = node.computed ? undefined : fieldNameOf(node.key);
+        if (node.static || name === undefined || cls === undefined) {
+            if (node.value) walkVariables(node.value, results, stack);
+            return;
+        }
+        const field = declareField(cls, name, node.key, results);
+        const previous = currentFeedTargets;
+        const previousInferred = currentFeedsInferred;
+        currentFeedTargets = [field];
+        currentFeedsInferred = false;
+        if (node.value) walkVariables(node.value, results, stack);
+        currentFeedTargets = previous;
+        currentFeedsInferred = previousInferred;
+        return;
+    }
+
     // class Ranker {} — the class name
     if (node.type === "ClassDeclaration" && node.id) {
         stack[stack.length - 1]!.declarations.push(makeBinding(node.id, "declaration", "class"));
@@ -1210,6 +1363,21 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             });
             currentFeedTargets = [target];
             currentFeedsInferred = false;
+        } else if (
+            node.left.type === "MemberExpression" && node.left.object.type === "ThisExpression" &&
+            !node.left.computed && thisClass !== null
+        ) {
+            // Gap 20: `this.x = y` writes the field, proven. Which class's
+            // field waits for the walk to finish; see `resolveFields`.
+            const name = fieldNameOf(node.left.property);
+            if (name !== undefined) {
+                const target = placeholder(name);
+                target.kind = "field";
+                fieldWrites.push({ cls: thisClass, name, property: node.left.property, id: target.start });
+                noteFieldName(thisClass, name);
+                currentFeedTargets = [target];
+                currentFeedsInferred = false;
+            }
         }
         walkVariables(node.right, results, stack);
         // Restore currentFeedTargets to its previous value after handling AssignmentExpression
@@ -1219,6 +1387,20 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
     }
 
     if (node.type === "MemberExpression") {
+        // Gap 20: `this.x` reads the field, and carries it wherever the
+        // expression around it goes — the same stamp an identifier gets.
+        const name = node.object.type === "ThisExpression" && !node.computed && thisClass !== null
+            ? fieldNameOf(node.property)
+            : undefined;
+        if (name !== undefined) {
+            const use = makeUse(node.property);
+            use.name = name;
+            if (currentFeedTargets.length > 0) {
+                use.feeds = currentFeedTargets.map(t => feedOf(t, currentFeedsInferred));
+            }
+            fieldReads.push({ cls: thisClass!, use, inReturnStatement, fn: currentFunction });
+            return;
+        }
         walkVariables(node.object, results, stack);
         if (node.computed) walkVariables(node.property, results, stack);
         return;
@@ -1406,6 +1588,12 @@ export function collectPatternNames(pattern: TSESTree.Node | null, declarations:
         // ...args
         case "RestElement":
             collectPatternNames(pattern.argument, declarations, kind, varType);
+            break;
+
+        // constructor(private x) — still a parameter, in its position. Missing
+        // it shifted every later argument onto the wrong parameter.
+        case "TSParameterProperty":
+            collectPatternNames(pattern.parameter, declarations, kind, varType);
             break;
     }
 }

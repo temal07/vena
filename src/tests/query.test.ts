@@ -523,3 +523,18 @@ test("call matching: leaving a function started inside follows a caller's `retur
     ].join("\n");
     expect(await reach(source, "m.ts:q", "forward")).toEqual(["inner@1", "out@3", "q@1", "wrap@2"]);
 });
+
+// Gap 20 — Hono benchmark Q9's shape: a constructor argument stored on `this`
+// and handed back by another method. The trace used to stop at the parameter.
+test("fields: a constructor argument reaches what another method returns", async () => {
+    const source = [
+        "class HTTPException {",                                           // 1
+        "  constructor(code) { this.status = code }",                      // 2
+        "  getResponse() { return this.status }",                          // 3
+        "}",                                                               // 4
+        "const e = new HTTPException(500);",                               // 5
+        "const res = e.getResponse();",                                    // 6
+    ].join("\n");
+    expect(await reach(source, "m.ts:code", "forward"))
+        .toEqual(["code@2", "getResponse@3", "res@6", "status@2"]);
+});

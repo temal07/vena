@@ -289,6 +289,9 @@ function nodeId(file: string, start: number): string {
  * `seen` is not optional: `export *` cycles between two barrels are ordinary in
  * real projects, and without it the first one hangs the analysis.
  */
+/** A method or an instance field: on a class, never in any module's scope. */
+const isClassMember = (declaration: Binding) => declaration.methodOf !== undefined || declaration.fieldOf !== undefined;
+
 function resolveExportedName(
   file: string,
   name: string,
@@ -309,10 +312,12 @@ function resolveExportedName(
   const results = treeResults[file];
   if (!results) return undefined;
 
-  // A method shares the declarations list but is never what a module exports
-  // by name: `class P { parse() {} }` doesn't publish `parse`.
+  // A method or field shares the declarations list but is never what a module
+  // exports by name: `class P { parse() {} }` doesn't publish `parse`, and
+  // `class F { make = () => {} }` doesn't publish `make` — Hono's `Factory`
+  // has a `createMiddleware` field beside the exported function of that name.
   const declaredHere = (local: string) =>
-    results.declarations.find((declaration) => declaration.name === local && declaration.methodOf === undefined);
+    results.declarations.find((declaration) => declaration.name === local && !isClassMember(declaration));
 
   /** Continue into the module `source` names, asking it for `wanted`. */
   const follow = (source: string | undefined, wanted: string) => {
@@ -355,7 +360,7 @@ function resolveExportedName(
 
   // 4. Pre-existing behaviour: any declaration of that name in the file.
   return results.declarations.find(
-    (declaration) => declaration.name === name && declaration.kind !== "import" && declaration.methodOf === undefined
+    (declaration) => declaration.name === name && declaration.kind !== "import" && !isClassMember(declaration)
   );
 }
 
