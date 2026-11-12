@@ -1,0 +1,41 @@
+I found 11 destinations within 3 hops. Seven are certain. Four rest on judgement calls about how JSX flow counts, listed at the end.
+
+How I searched: I grepped every use of `bucketFillIcon` (9 usage sites in 6 files besides its declaration), ran vena-trace, and read the receiving functions. `bucketFillIconSvgPaths` in `App.cursor.ts` is a different value. vena-trace found nothing from the JSX props, so I traced those by hand.
+
+Paths:
+- **`Tools.tsx`:** `TOOLS = defineTools({ bucketfill: { icon: bucketFillIcon } })`.
+  - Hop 1 is the `tools` param of `defineTools` (line 60).
+  - Hop 2 is the return of `defineTools`, which is the arrow function declared on line 60.
+  - Hop 3 is `TOOLS` (line 69).
+- **`MobileToolbar.tsx`:**
+  - The ternary on line 136 makes `extraIcon` hop 1.
+  - `{extraIcon}` sits in the returned JSX as children of `DropdownMenu.Trigger`, which gives the return of `MobileToolbar` (line 49). vena-trace reports this one.
+  - It also gives the `children` param of `MenuTrigger` (`DropdownMenuTrigger.tsx:9`).
+  - The direct `icon={bucketFillIcon}` on line 340 goes to `DropdownMenuItem`'s `icon` (line 31), then to `MenuItemContent`'s `icon` (line 9).
+- **`Toolbar.tsx`:**
+  - In `ExtraToolsDropdown`, the ternary on line 115 is children of `DropdownMenu.Trigger`, which goes to `MenuTrigger`'s `children` and to the return of `ExtraToolsDropdown` (line 54).
+  - `icon={bucketFillIcon}` on line 176 goes to `DropdownMenuItem`'s `icon`, the same as in `MobileToolbar`.
+- **`CommandPalette.tsx`:**
+  - `additionalCommands` (line 424) gets three `icon: bucketFillIcon` entries.
+  - It is spread into `allCommands` (line 607). That variable's initialiser ends in `.map(...)`, so the value only gets in through that callback.
+- **`PasteChartDialog.tsx`:** line 250 renders the icon inside a plain `<div>`, so it has no destination.
+
+Judgement calls:
+1. **Returned JSX as a return.** I counted JSX that holds the value and is returned by a component as that component's return. vena-trace does this for `MobileToolbar`, and I applied the same rule to `ExtraToolsDropdown`. By that same rule the returns of `DropdownMenuItem`, `MenuItemContent`, `MenuTrigger` and `PasteChartDialog` would also count, and I left them out.
+2. **JSX `children` as a prop.** I counted `children` as a prop under the JSX-prop rule.
+3. **Library callbacks and setters.** I did not count flow into the `.map` callback's `command` parameter, or through the `setAllCommands` and `setLastUsed` React state setters.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/Tools.tsx:60 tools param
+packages/excalidraw/components/Tools.tsx:60 defineTools return
+packages/excalidraw/components/Tools.tsx:69 TOOLS variable
+packages/excalidraw/components/MobileToolbar.tsx:136 extraIcon variable
+packages/excalidraw/components/MobileToolbar.tsx:49 MobileToolbar return
+packages/excalidraw/components/Toolbar.tsx:54 ExtraToolsDropdown return
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:424 additionalCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:607 allCommands variable
+packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx:31 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx:9 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx:9 children param
+```

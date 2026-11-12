@@ -1,0 +1,934 @@
+{
+  "maxHops": 3,
+  "buildMs": 2119,
+  "answers": {
+    "S1": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/charts/charts.constants.ts",
+          "line": 30,
+          "name": "RADAR_LABEL_OFFSET",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 353,
+          "name": "radialOffset",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 355,
+          "name": "anchorX",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 356,
+          "name": "anchorY",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 433,
+          "name": "legendY",
+          "kind": "variable",
+          "proven": false
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 338,
+          "name": "opts",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 272,
+          "name": "maxWidth",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/textWrapping.ts",
+          "line": 401,
+          "name": "maxWidth",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 269,
+          "name": "getRadarDisplayText",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 353,
+          "name": "fontFamily",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 354,
+          "name": "fontSize",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 355,
+          "name": "lineHeight",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/textMeasurements.ts",
+          "line": 72,
+          "name": "text",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/textMeasurements.ts",
+          "line": 20,
+          "name": "env",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 363,
+          "name": "textAlign",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 364,
+          "name": "verticalAlign",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 92,
+          "name": "x",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/newElement.ts",
+          "line": 370,
+          "name": "textElementProps",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.constants.ts",
+          "line": 31,
+          "name": "RADAR_PADDING",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 153,
+          "name": "chartWidth",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 152,
+          "name": "getRadarDimensions",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 154,
+          "name": "chartHeight",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.constants.ts",
+          "line": 35,
+          "name": "RADAR_AXIS_LABEL_CLEARANCE",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.constants.ts",
+          "line": 37,
+          "name": "RADAR_LEGEND_ITEM_GAP",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 438,
+          "name": "pillPaddingX",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 443,
+          "name": "pillWidth",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 440,
+          "name": "totalLegendWidth",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 465,
+          "name": "cursorX",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.constants.ts",
+          "line": 38,
+          "name": "RADAR_LEGEND_TEXT_GAP",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 419,
+          "name": "itemWidth",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 358,
+          "name": "yNudge",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/charts/charts.helpers.ts",
+          "line": 393,
+          "name": "fallbackLegendY",
+          "kind": "param",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 1
+    },
+    "S2": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/components/ConvertElementTypePopup.tsx",
+          "line": 301,
+          "name": "SHAPES",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/ConvertElementTypePopup.tsx",
+          "line": 196,
+          "name": "Panel",
+          "kind": "return",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 0
+    },
+    "S3": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/components/DefaultSidebar.tsx",
+          "line": 77,
+          "name": "isForceDocked",
+          "kind": "variable",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 0
+    },
+    "S4": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/actions/register.ts",
+          "line": 9,
+          "name": "action",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/actions/register.ts",
+          "line": 3,
+          "name": "actions",
+          "kind": "variable",
+          "proven": false
+        },
+        {
+          "file": "packages/excalidraw/actions/register.ts",
+          "line": 5,
+          "name": "register",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/actions/actionElementLink.ts",
+          "line": 16,
+          "name": "actionCopyElementLink",
+          "kind": "variable",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 0
+    },
+    "S5": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/components/Tools.tsx",
+          "line": 60,
+          "name": "tools",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/MobileToolbar.tsx",
+          "line": 136,
+          "name": "extraIcon",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/MobileToolbar.tsx",
+          "line": 49,
+          "name": "MobileToolbar",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+          "line": 424,
+          "name": "additionalCommands",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+          "line": 607,
+          "name": "allCommands",
+          "kind": "variable",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 0
+    },
+    "S6": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 356,
+          "name": "segments",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 356,
+          "name": "curves",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 635,
+          "name": "segments",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 635,
+          "name": "curves",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 794,
+          "name": "curves",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/renderer/interactiveScene.ts",
+          "line": 792,
+          "name": "midpoints",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 371,
+          "name": "sides",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 444,
+          "name": "sides",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 443,
+          "name": "getRotatedSides",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 371,
+          "name": "corners",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 372,
+          "name": "cornerSegments",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 309,
+          "name": "getElementLineSegments",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3192,
+          "name": "sides",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3193,
+          "name": "bottomRight",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3461,
+          "name": "p2",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3461,
+          "name": "p1",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3193,
+          "name": "bottomLeft",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3193,
+          "name": "topLeft",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3193,
+          "name": "topRight",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3192,
+          "name": "corners",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3201,
+          "name": "leftCorner",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3202,
+          "name": "midPoint",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3215,
+          "name": "rightCorner",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3216,
+          "name": "midPoint",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3228,
+          "name": "topCorner",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3229,
+          "name": "midPoint",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3241,
+          "name": "bottomCorner",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/binding.ts",
+          "line": 3242,
+          "name": "midPoint",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/distance.ts",
+          "line": 104,
+          "name": "sides",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/distance.ts",
+          "line": 93,
+          "name": "distanceToDiamondElement",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/distance.ts",
+          "line": 30,
+          "name": "distanceToElement",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/distance.ts",
+          "line": 104,
+          "name": "curves",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 779,
+          "name": "sides",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 629,
+          "name": "lines",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 779,
+          "name": "corners",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 587,
+          "name": "curves",
+          "kind": "param",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 1
+    },
+    "S7": {
+      "destinations": [
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 210,
+          "name": "hitElement",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 219,
+          "name": "result",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 121,
+          "name": "cachedHit",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/collision.ts",
+          "line": 137,
+          "name": "hitElementItself",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/utils/src/shape.ts",
+          "line": 270,
+          "name": "isClosed",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/utils/src/shape.ts",
+          "line": 267,
+          "name": "getFreedrawShape",
+          "kind": "return",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 0
+    },
+    "S8": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+          "line": 265,
+          "name": "originalAppState",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+          "line": 270,
+          "name": "onPointerMove",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+          "line": 314,
+          "name": "onPointerUp",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/common/src/utils.ts",
+          "line": 587,
+          "name": "items",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 257,
+          "name": "element",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/data/reconcile.ts",
+          "line": 74,
+          "name": "localElements",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/common/src/utils.ts",
+          "line": 586,
+          "name": "arrayToMap",
+          "kind": "return",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/data/reconcile.ts",
+          "line": 75,
+          "name": "remoteElements",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/transform.ts",
+          "line": 687,
+          "name": "elements",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "excalidraw-app/collab/Collab.tsx",
+          "line": 335,
+          "name": "syncableElements",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/common/src/utils.ts",
+          "line": 948,
+          "name": "obj",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "excalidraw-app/data/firebase.ts",
+          "line": 192,
+          "name": "elements",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "excalidraw-app/data/firebase.ts",
+          "line": 132,
+          "name": "elements",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "excalidraw-app/data/firebase.ts",
+          "line": 177,
+          "name": "elements",
+          "kind": "param",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 1
+    },
+    "S9": {
+      "destinations": [
+        {
+          "file": "packages/common/src/utils.ts",
+          "line": 587,
+          "name": "items",
+          "kind": "param",
+          "proven": false
+        },
+        {
+          "file": "packages/common/src/utils.ts",
+          "line": 586,
+          "name": "arrayToMap",
+          "kind": "return",
+          "proven": false
+        },
+        {
+          "file": "packages/excalidraw/actions/actionStyles.ts",
+          "line": 104,
+          "name": "copiedElementsMap",
+          "kind": "variable",
+          "proven": false
+        },
+        {
+          "file": "packages/excalidraw/actions/actionTextAutoResize.ts",
+          "line": 38,
+          "name": "targetTextElement",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1557,
+          "name": "selectionBounds",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1560,
+          "name": "selectionX1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/math/src/point.ts",
+          "line": 36,
+          "name": "xOrCoords",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1560,
+          "name": "selectionY1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/math/src/point.ts",
+          "line": 37,
+          "name": "y",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1560,
+          "name": "selectionX2",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1560,
+          "name": "selectionY2",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1519,
+          "name": "outerBounds",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1498,
+          "name": "bounds",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1506,
+          "name": "bounds1",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1513,
+          "name": "minX1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1513,
+          "name": "minY1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1513,
+          "name": "maxX1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1513,
+          "name": "maxY1",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/bounds.ts",
+          "line": 1490,
+          "name": "bounds",
+          "kind": "param",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 1
+    },
+    "S10": {
+      "destinations": [
+        {
+          "file": "packages/excalidraw/actions/colorTargets.ts",
+          "line": 120,
+          "name": "editing",
+          "kind": "variable",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/actions/colorTargets.ts",
+          "line": 109,
+          "name": "element",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/comparisons.ts",
+          "line": 3,
+          "name": "type",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/element/src/comparisons.ts",
+          "line": 19,
+          "name": "type",
+          "kind": "param",
+          "proven": true
+        },
+        {
+          "file": "packages/excalidraw/actions/actionProperties.tsx",
+          "line": 499,
+          "name": "editingTarget",
+          "kind": "variable",
+          "proven": true
+        }
+      ],
+      "truncated": false,
+      "ms": 1
+    }
+  }
+}

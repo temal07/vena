@@ -594,3 +594,107 @@ On a real class-and-React codebase **the graph mostly does not contain the paths
 #3 said "test on hard questions before investing in delivery". This is that test, and it says the order is: **object-field flow (gap 20) first.** Without it, on code shaped like excalidraw's app layer, vena answers a minority of real questions, and a model reading the source answers all of them at the same cost.
 
 Threats: 8 questions, one run each; the same author picked the question template, wrote the key and graded — and the key was wrong once, in vena's favour of a narrower definition of flow.
+
+# Benchmark #5 — recall: does an agent find *every* destination? (November 12 2026)
+
+#3 and #4 scored *correctness* on questions with one or two paths, and an agent matched vena on both. That leaves vena's strongest claim untested: an agent reads until it is satisfied, so it returns *a* path, not *all* of them, and nobody can see what it skipped. This benchmark scores **recall** — of everything a value really reaches, what fraction each arm finds.
+
+## Setup
+
+- **Repo:** excalidraw `701b901` (`master`, November 5 2026), 704 files.
+- **Seeds, chosen without consulting vena** (`src/bench/recall/select.ts`). Picking by "vena reaches a lot from here" would pick exactly the flow vena models. So the proxy is syntactic: exported constants (V) and exported functions whose result is used (R), with 4–12 uses across at least 3 non-test files, counted from the AST only in files that declare or import the name. Pools of 81 and 159; 5 of each sampled with seed `20261112`. Three of the five V seeds turned out to be icons passed as JSX props. Dull, but changing the filter after seeing the sample would be cherry-picking, so they stay.
+- **The question,** identical for every arm: every destination — variable, parameter, field, or function return — the value reaches **within 3 hops**. One hop is an assignment or initialisation (also as part of an expression), an argument reaching a parameter (a JSX prop counts), a `return`, a call result reaching a variable, or a field write. Test files are out of scope. Cited as `file:line name kind`, at the destination's declaration.
+  - **Why bounded:** unbounded, `BAR_GAP` reaches 40 hops of chart-layout arithmetic, which nobody means by "where does this value end up", and a pool of a thousand candidates can't be checked by hand.
+- **Arms:**
+  - **A — agent alone.** A fresh general-purpose agent with Read, Grep and Bash, as in #3.
+  - **B — vena alone.** No agent: every destination of a forward trace from the seed, at depth 3 (`vena-arm.ts`). Also scored as **B-strict**, proven edges only.
+  - **C — agent + vena.** A's prompt plus one paragraph on `vena-trace`, run from a standalone copy outside this repo, as in #3.
+- **Ground truth is pooled** (`score.ts`): the union of every destination any arm lists, each checked against the source and marked `true`, `false`, or `out-of-scope` (real, but beyond 3 hops or in a test). A destination no arm found is missing for everyone, so recall here is *relative* — it overstates every arm equally, and it can still rank them.
+
+## Already visible, before any agent ran
+
+Arm B's answer for **S9 `isExcalidrawElement`** shows a false-positive pattern. `.filter(isExcalidrawElement)` passes the *function itself* as a callback; gap 18's pass-through treats that as data flowing into `filter`'s result, and unbounded the chain runs 199 hops through `arrayToMap` and beyond — 1,408 destinations, 10 proven. Bounded to 3 hops it is 19, 16 "proven". Adjudication will say how many are real; the pattern itself is the "confident but wrong" output a developer can't tell apart from a real answer.
+
+## Prediction, recorded before running
+
+- **A** recall about 65%: it will get hop 1 right and thin out by hop 3, worst on the R seeds with many call sites (S6, S8).
+- **B** recall about 70%, losing JSX props and fields on receivers other than `this` (both unmodelled), and precision about 85%, losing S9's callback chain.
+- **C** recall about 80%, the best of the three.
+- **What decides the pitch:** if A's recall is within 10 points of B's or C's, completeness is not a reason to use vena. If B or C beats A by 15 points or more, that gap is the number to show.
+
+## How to run
+
+```bash
+# 1. The checkout (outside this repo; never run bun from inside it).
+git clone --depth 1 https://github.com/excalidraw/excalidraw.git <dir>/excalidraw   # then check out 701b901
+# 2. Seeds, arm B, and the standalone vena-trace for arm C.
+bun src/bench/recall/select.ts <dir>/excalidraw <out>/seeds.json
+bun src/bench/recall/vena-arm.ts <dir>/excalidraw <out>/seeds.json <out>/vena-answers.json
+mkdir -p <out>/vena-trace && cp src/scripts/query.ts src/scripts/types.ts <out>/vena-trace/
+#    ...and write the graph there: analyse(<dir>/excalidraw) -> <out>/vena-trace/graph.json
+bun src/bench/recall/prompts.ts <dir>/excalidraw <out>/seeds.json <out>/prompts <out>/vena-trace
+# 3. One fresh agent per prompt (A and C); save each full reply as <out>/answers/<seed>-<arm>.txt.
+# 4. Pool, adjudicate every candidate in adjudication.json by reading the source, then report.
+bun src/bench/recall/score.ts pool <out>/seeds.json <out>/vena-answers.json <out>/answers <out>/adjudication.json
+bun src/bench/recall/score.ts report <out>/adjudication.json
+```
+
+## Results (run November 12 2026)
+
+All 20 agent runs completed (Opus 5.5, fresh context each). Pooling gave 215 candidates. Every candidate was checked against the source, and every `false` carries a one-line note (`src/bench/recall/results/2026-11-12/adjudication.json`, with every reply under `answers/`). Result: 161 true destinations, 32 false, 22 out of scope.
+
+| | A — agent | B — vena | B-strict | C — agent + vena |
+| --- | --- | --- | --- | --- |
+| **recall** | **96%** | **48%** | 47% | **84%** |
+| precision | 99% | 68% | 69% | 98% |
+| tokens (10 runs) | 518k | — | — | 516k |
+
+By what carried the value (a destination is `plain` only if every hop on its path is ordinary TypeScript):
+
+| mechanism | true | A | B | C |
+| --- | --- | --- | --- | --- |
+| plain TypeScript | 103 | 98% | **73%** | 99% |
+| `.map` / `.forEach` callback | 26 | 100% | 4% | 12% |
+| JSX prop or children | 22 | 86% | 5% | 100% |
+| React state, `ref.current`, `o.x` | 7 | 100% | 0% | 86% |
+| dynamic dispatch, Promise | 3 | 67% | 0% | 67% |
+
+**The prediction failed on every line.** It said A 65%, B 70%, C 80%. The agent alone found 96%, twice vena's recall, at 99% precision. By the decision rule recorded above, **completeness within 3 hops is not a reason to use vena**: the agent beat it by 48 points, not the other way round.
+
+### Why vena lost
+
+- **React, callbacks and object state are 36% of the true flow** (58 of 161) in this React app, and vena found 2 of them. JSX props, `.map` callback parameters and React state are not modelled at all.
+- **Even on plain TypeScript it found only 73%.** The misses are three engine bugs, confirmed on minimal repros:
+  1. **An expression-bodied arrow returns nothing.** `const f = (x) => x` never carries `x` out. TypeScript is full of these — `cloneLibraryItems`, `getArrowTypeIcon`, `defineTools` all missed this way, and with them everything downstream.
+  2. **Object-literal methods are not functions.** `register({ perform() { return v } })` records no return.
+  3. **`for (const x of xs)` doesn't connect `xs` to `x`.**
+- **A third of what vena listed was false** (31 of 97):
+  - **Conditions as data, 24.** A value used only as a test (`c ? a : b`, `if (c)`, `x === y`) is recorded as flowing into the result. The whole of S9 — 19 destinations, 16 marked proven — is this.
+  - **Object fields not told apart, 7.** Once `opts.y` carried the value, every `opts.fontFamily`, `opts.text`… read did too.
+  - **The rest:** the returns of two handlers that return nothing, and chains reached only through test files.
+
+### Vena made the agent worse
+
+Arm C's recall (84%) is **below** arm A's (96%). On S6 the arm C agent wrote that it left callback parameters out "which matches vena-trace" and dropped 21 real destinations that arm A, with no tool, listed. The tool's output set the agent's idea of what counts. Where vena was silent (JSX), the agent filled the gap itself; where vena drew a line, the agent followed it. A tool that is incomplete but looks authoritative lowers recall instead of raising it. C also cost the same tokens as A (516k vs 518k).
+
+### What still favours vena
+
+- **Cost and repeatability.** The graph builds in 2 s and each query is milliseconds and deterministic. Each agent run took 16–170 s and 40–78k tokens. Run-to-run variation wasn't measured — one run per cell.
+- **Nothing here tested deep or wide flow.** At 3 hops an agent reads every file involved. Whether it holds at 10 hops or across 100 call sites is untested — but this benchmark is no evidence that it doesn't.
+
+### Rules settled during adjudication
+
+Each was applied to every seed, and the affected verdicts say so:
+
+- **Condition-only use is false** — the question asks where the value lands, not what it influences (decided with the author before checking).
+- **A destination counts if it holds the value or a part of it** (`corners[2]`, `el.type`). A sibling field that never held it (`opts.fontFamily` beside `opts.y`) does not.
+- **A built-in that hands back its input's elements is one hop** — `concat`, spread, `.map` returning the element or a copy of it. A value computed from it by another function (rotated, measured, interpolated) is counted hop by hop through that function, which put most of those past hop 3 (`out-of-scope`).
+- **JSX returned by a component holds what it contains**, so a value rendered in a component's output lands in that component's return.
+
+## Threats to validity, to state in the writeup
+
+- **Pooled truth** misses whatever no arm found. Recall is relative, not absolute.
+- **The adjudicator is a model from the same family as the agents**, and the rules above were settled while reading their answers. A rule that suits how a model reads code would favour A and C. The condition rule was agreed with the author first; the others are recorded so they can be disputed.
+- **The adjudicator is the tool's author** (or a model). Every `false` verdict should carry a one-line note, so a reader can check it.
+- **One run per cell**, as in #3 and #4.
+- **One repo.** excalidraw is the shape vena is for (modular, aliased), but it is one codebase.

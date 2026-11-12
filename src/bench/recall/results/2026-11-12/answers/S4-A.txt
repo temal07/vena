@@ -1,0 +1,32 @@
+I found 8 destinations for `copyIcon` within 3 hops, in three chains.
+
+`copyIcon` is used in five places outside test files: `excalidraw-app/share/ShareDialog.tsx:138`, `ShareableLinkDialog.tsx:66`, `ImageExportDialog.tsx:348`, `App.tsx:2567` and `actions/actionElementLink.ts:19`.
+
+**Chain 1: FilledButton.** The share-dialog, shareable-link and image-export uses all pass it as `<FilledButton icon={copyIcon}>`. Hop 1 is the destructured `icon` parameter. Inside, it is only rendered as JSX children, so the chain ends there.
+
+**Chain 2: ElementCanvasButton.** The `App.tsx:2567` use is `<ElementCanvasButton icon={copyIcon}>`.
+- Hop 1 is its `props` parameter in `MagicButton.tsx:7`.
+- Hop 2 is `IconButton`'s rest `...props` parameter, through `icon={props.icon}`.
+- After that it is only rendered.
+
+**Chain 3: action registration.** In `actionElementLink.ts:19`, `{ icon: copyIcon, ... }` is passed to `register(...)`.
+- Hop 1 is `register`'s parameter `action`.
+- Hop 2 has two destinations: the module variable `actions`, written by `actions = actions.concat(action)`, and the return of `register`.
+- Hop 3 also has two: `actionCopyElementLink`, which takes `register`'s result, and the `actions` parameter of `ActionManager.registerAll`, which receives the module `actions` at `App.tsx:917`.
+
+**Left out:**
+- I did not list the object-literal property `icon` on `Action` as a separate field destination. It only appears inside the argument to `register`, so I counted that as the parameter hop. If your scoring treats object-literal properties as field writes, that is the one entry that could be missing.
+- I did not count the JSX element passed as `children` to `ElementCanvasButtons`.
+- Uses of `actionCopyElementLink` in the `App.tsx` context-menu array and `CommandPalette` are hop 4 or later, beyond the bound.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/FilledButton.tsx:43 icon param
+packages/excalidraw/components/MagicButton.tsx:7 props param
+packages/excalidraw/components/IconButton.tsx:69 props param
+packages/excalidraw/actions/register.ts:9 action param
+packages/excalidraw/actions/register.ts:3 actions variable
+packages/excalidraw/actions/register.ts:5 register return
+packages/excalidraw/actions/actionElementLink.ts:16 actionCopyElementLink variable
+packages/excalidraw/actions/manager.tsx:85 actions param
+```

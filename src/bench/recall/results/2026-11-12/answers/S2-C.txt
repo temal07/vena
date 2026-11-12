@@ -1,0 +1,35 @@
+I found 9 destinations for `roundArrowIcon` within 3 hops. They come from its four uses, in `ConvertElementTypePopup.tsx`, `CursorHint.tsx`, `actionProperties.tsx` and `Actions.tsx`.
+
+**`ConvertElementTypePopup.tsx`**
+1. `roundArrowIcon` goes into the `SHAPES` array (line 301).
+2. `SHAPES.map(([type, icon]) => …)` puts it in the callback parameter `icon` (line 333).
+3. `<IconButton icon={icon} />` passes it to `IconButton`'s props. These are destructured, and `...props` is the rest binding at `IconButton.tsx:69`.
+
+vena-trace also reported "returned by Panel". I left it out: `Panel` returns a JSX tree that contains `SHAPES.map(...)`, not the value or `SHAPES`.
+
+**`CursorHint.tsx`**
+1. The ternary inside `getArrowTypeIcon` makes it that function's return (line 41).
+2. Both call sites (lines 87 and 100) pass that result straight into `this.show(...)`, so it lands in the `content` parameter of `show` (line 65).
+3. `this.app.updateEditorAtom(cursorHintAtom, { content, nonce })` puts it in the rest parameter `args` of `updateEditorAtom` (`App.tsx:1096`).
+
+**`actionProperties.tsx`**
+1. Line 2288 puts it in the `options` prop of `<RadioSelection>`, so it reaches `RadioSelection`'s `props` parameter (`RadioSelection.tsx:8`).
+2. `props.options.map((option) => …)` makes `option` a destination (line 32).
+3. `<RadioButton icon={option.icon} />` passes it to `RadioButton`'s `props` parameter (`RadioButton.tsx:18`).
+
+**Judgement calls** (I counted the `.map` callback parameters and JSX props as hops):
+- **`Actions.tsx`:** line 382 returns `roundArrowIcon` from an inline arrow function that is called immediately inside JSX. That return is a real destination, but the function has no name to cite, so it is not in the list.
+- **Map callbacks:** I counted the `.map` callback parameters (`icon`, `option`) as argument-to-parameter hops. If your scoring doesn't count them, drop `IconButton` and `RadioButton` as well, because they are only reached through those callbacks.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/ConvertElementTypePopup.tsx:301 SHAPES variable
+packages/excalidraw/components/ConvertElementTypePopup.tsx:333 icon param
+packages/excalidraw/components/IconButton.tsx:69 props param
+packages/excalidraw/components/CursorHint.tsx:41 getArrowTypeIcon return
+packages/excalidraw/components/CursorHint.tsx:65 content param
+packages/excalidraw/components/App.tsx:1096 args param
+packages/excalidraw/components/RadioSelection.tsx:8 props param
+packages/excalidraw/components/RadioSelection.tsx:32 option param
+packages/excalidraw/components/RadioButton.tsx:18 props param
+```
