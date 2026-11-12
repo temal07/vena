@@ -1,0 +1,15 @@
+I found five calls to `getColorTargetElement` outside test files, but only two of them put the whole returned element somewhere. Those two give three destinations, all within 2 hops.
+
+**Calls that count:**
+- `packages/excalidraw/actions/actionProperties.tsx:501`: the result goes into `const v77 = v76 && getColorTargetElement(...)`, declared at line 499 (hop 1). After that, `v77` is only compared and read (`v77 !== v76`, `v77.id`), so the trail stops there.
+- `packages/excalidraw/actions/colorTargets.ts:121`: the result goes into `const v11`, declared at line 120 (hop 1). `v7(v11)` passes it to the parameter `v8` of the arrow function `v7`, declared at line 109 (hop 2). `v8` is then only read as `v8.type`, so that trail stops too.
+
+**Calls I left out:**
+- `shapeActionPredicates.ts:75` (`getColorTargetElement(...).type`) and `actionProperties.tsx:546` (`getColorTargetElement(...).backgroundColor`) pass on only a property of the result, not the element itself. This is a judgement call: if property reads count as carrying the value, `hasBackground`'s parameter and the return of the arrow callback at line 545 would be extra destinations.
+- `actionProperties.tsx:487` only compares the result with `=== v75`.
+- `v9.push(v11)` in `colorTargets.ts` puts the value into an array. That isn't one of the five hop kinds, so I didn't count it.
+
+FINAL ANSWER
+packages/excalidraw/actions/actionProperties.tsx:499 v77 variable
+packages/excalidraw/actions/colorTargets.ts:120 v11 variable
+packages/excalidraw/actions/colorTargets.ts:109 v8 param

@@ -96,7 +96,7 @@ async function pool(seedsPath: string, venaPath: string, answersDir: string, adj
 async function report(adjPath: string) {
     const adj: Adjudication = await Bun.file(adjPath).json();
     const arms = [...new Set(Object.values(adj).flatMap((s) => s.candidates.flatMap((c) => c.foundBy)))].sort();
-    const pending = Object.values(adj).flatMap((s) => s.candidates).filter((c) => c.verdict === null);
+    const pending = Object.values(adj).flatMap((s) => s.candidates).filter((c) => c.verdict === null && !c.sameAs);
     if (pending.length) console.log(`⚠ ${pending.length} candidates have no verdict yet; they are left out below.\n`);
 
     const totals = new Map(arms.map((a) => [a, { tp: 0, fp: 0, truth: 0 }]));

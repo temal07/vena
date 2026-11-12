@@ -1,0 +1,11 @@
+I found no destinations for the return value of `isExcalidrawElement` (`packages/element/src/typeChecks.ts:255`). Every call uses the result only as a condition, so the boolean never lands in a variable, parameter, field or return.
+
+There are no re-exports, aliases or other references; a repo-wide grep finds the name in only these five files. The calls outside the declaration are:
+
+- `packages/element/src/bounds.ts:1557`: the result is the condition of a ternary, `const v422 = isExcalidrawElement(v416) ? getElementBounds(v416, v415) : v416`. `v422` gets one of the two branches, never the boolean, so it is not a destination.
+- `packages/excalidraw/components/App.viewport.ts:141`: the result is negated inside an `if` condition.
+- `packages/excalidraw/actions/actionStyles.ts:93`: the result is negated inside an `if` condition.
+- `packages/excalidraw/actions/actionStyles.ts:105`: the function is passed to the built-in `Array.prototype.filter` as a predicate (`.filter(isExcalidrawElement)`). Its return is consumed inside the built-in, and `v21` gets the filtered elements, not the boolean.
+- `packages/excalidraw/actions/actionTextAutoResize.ts:39`: `isExcalidrawElement(v7) && isTextElement(v7)` is the condition of a ternary. `v10` gets `v7` or `v9[0]`, not the boolean.
+
+FINAL ANSWER

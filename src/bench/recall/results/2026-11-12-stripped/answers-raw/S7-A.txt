@@ -1,0 +1,14 @@
+I found one destination for the values returned by `shouldTestInside`. It is the third parameter of `getFreedrawShape`, at hop 1. The value goes no further, so there is nothing at hop 2 or 3.
+
+`shouldTestInside` is called in four places outside test files:
+- **`packages/element/src/shape.ts:1211`**: in `getElementShape`, the result is passed as the third argument to `getFreedrawShape`, which is declared in `packages/utils/src/shape.ts:267`. That parameter is `v54: boolean = false` on line 270, so `v54` is hop 1. Inside `getFreedrawShape`, `v54` is only used as the condition of a ternary that picks between two object literals, so the value stops there.
+- **`packages/element/src/shape.ts:1187`**: `return shouldTestInside(v175) ? getClosedCurveShape(...) : getCurveShape(...)`. The result is only the ternary condition. The return value comes from the two branches, so this is not a destination.
+- **`packages/element/src/collision.ts:211`**: `const v15 = (v10 ? true : shouldTestInside(v6)) ? ... : ...`. The result sits inside a ternary that is itself the condition of the outer ternary. `v15` gets its value from `isPointInElement`/`isPointOnElementOutline`, not from this result, so this is not a destination.
+- **`packages/excalidraw/eraser/index.ts:228`**: `if (shouldTestInside(v32) && isPointInElement(...))`. The result is only an `if` condition, so this is not a destination.
+
+The `@excalidraw/element` import in the eraser file points to the same function, and there are no other aliases or re-exports in use.
+
+```
+FINAL ANSWER
+packages/utils/src/shape.ts:270 v54 param
+```

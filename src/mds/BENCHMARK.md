@@ -698,3 +698,35 @@ Each was applied to every seed, and the affected verdicts say so:
 - **The adjudicator is the tool's author** (or a model). Every `false` verdict should carry a one-line note, so a reader can check it.
 - **One run per cell**, as in #3 and #4.
 - **One repo.** excalidraw is the shape vena is for (modular, aliased), but it is one codebase.
+
+# Benchmark #5b — does the agent need the names? (November 12 2026)
+
+#5's agents followed values through `opts`, `curve`, `c` and `v` without trouble, which suggested they read structure, not names. This tests it directly: the same 10 prompts, run by a fresh agent with no tool (arm A's setup), on a copy of excalidraw with every local variable and parameter renamed to `v1`, `v2`, … (`src/bench/recall/strip.ts`).
+
+- **What was stripped:** 22,654 locals across 475 files, through TypeScript's own checker, so each declaration and its uses change together. `const { x } = o` and the shorthand `{ x }` become `{ x: v3 }` on the same line, so every `file:line` still points at the same code. All 475 files still parse and keep their line counts.
+- **What was kept:** exported and module-level names, function, class and method names, object properties, types and comments. They cross files, or carry structure rather than a local label — so this strips the labels on *values*, not every hint in the code.
+- **Scoring:** answers mapped back to the original names (`unstrip.ts`) and pooled with #5's adjudicated candidates. The 32 new candidates were adjudicated under #5's rules.
+
+## Result
+
+| | agent, real names (#5 arm A) | agent, names stripped |
+| --- | --- | --- |
+| recall on #5's 161 true destinations | 96% | **94%** |
+| precision | 99% | 97% |
+| tokens (10 runs) | 518k | 520k |
+
+**Stripping the names barely moved recall.** The agent follows calls, returns and destructuring, not what things are called. Of the four destinations it lost on #5's pool, three are judgement calls the real-names run made differently — React state set through `setAllCommands` and the `.find` callback after it (S5), and stopping at the `withBatchedUpdates` wrapper rather than its parameter (S3) — and one is a plain miss, `cloneLibraryItems`'s parameter on the second pass (S8). None is a lookup that failed for want of a name.
+
+The stripped run also found **26 real destinations that no arm of #5 listed**, 25 of them in S8: it counted `for (const element of elements)` as a hop and followed `element` into every `new*Element({ ...element })` call in `transform.ts`. The real-names agent saw the same loop and explicitly chose not to count it. With those added, the pool has 187 true destinations, and arm A's recall on the larger pool is 83%.
+
+## What it means
+
+- **Names are not where agents are weak.** A scanner that classifies data by name (Bearer: `username`, and `fontFamily` mistaken for a surname) is a different and weaker thing than an agent reading the code. "Data not stored in a descriptive variable" is not a gap agents leave open.
+- **What varies is interpretation, not capability.** Two runs of the same question disagreed on whether a loop variable, React state or a property read counts — and that moved 25 destinations on one seed. Run-to-run variation, flagged as unmeasured in #5, is real, and it comes from the definition of "flow", not from search.
+- That is the opening a deterministic graph could own: not finding what an agent can't, but **answering the same question the same way every time, under a definition that is written down.** Whether anyone pays for that is a question for users, not for another benchmark.
+
+## Threats to validity
+
+- Comments, function names and property names still carry meaning; a fully obfuscated build was not tested.
+- One run per cell. The 96% vs 94% gap is within what one different judgement call moves.
+- Adjudicated by the same model family, under rules settled in #5.

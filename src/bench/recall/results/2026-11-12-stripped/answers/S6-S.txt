@@ -1,0 +1,72 @@
+I found 7 calls to `deconstructDiamondElement` whose result is used, and I followed each one for up to 3 hops. Every call takes the result apart straight away with `const [a, b] = ...`. No call passes the result directly as an argument or returns it.
+
+**One judgement call:** I did not count array or builtin call results as carrying the value. That covers `.map(...)`, `.flat()` and `Math.min(...)`, which reach their result only through a callback's return, one hop more than the value itself. So I left out four candidates:
+- In `bounds.ts`, `v83 = v82.map(...).flat()`, `v85 = getRotatedSides(v81, …)`, the return of `getRotatedSides`, and the return of `getElementLineSegments`. All of these come to 4 or more hops when counted that way.
+- In `distance.ts`, the return of `distanceToDiamondElement`, because `Math.min` returns a number.
+
+If you count any expression that contains the value, `bounds.ts:372 v83`, `bounds.ts:443 getRotatedSides return`, `bounds.ts:309 getElementLineSegments return` and `distance.ts:94 distanceToDiamondElement return` would be added.
+
+**Per call:**
+- **`bounds.ts:371`:** the value goes to `v81` and `v82`. From `v82` it goes to the map callback parameter `v84`, then to `getSegmentsOnCurve`'s parameter `v103`. From `v81` it goes to `getRotatedSides`'s parameter `v99`, then to its callback parameter `v102`.
+- **`binding.ts:3192`** (in `getBindingSideMidPoint`): the value goes to `v531` and `v532`. `v531` is split into `v533`–`v536`, and those parts are passed to `getMidPoint`'s parameters `v601` and `v602`. From `v532` it goes to `v539`, `v542`, `v545` and `v548`, then to `v540`, `v543`, `v546` and `v549`. The later `v537`/`v538` assignments and the `getMidPoint` results are at hop 4.
+- **`distance.ts:104`:** the value goes to `v18` and `v19`, then to the callback parameters `v20` and `v21`. From there it reaches `distanceToLineSegment`'s parameter `v25` and `curvePointDistance`'s parameter `v71`, both in `packages/math`.
+- **`collision.ts:779`:** the value goes to `v155` and `v156`. These pass into `lineIntersections`'s `v113` and `curveIntersections`'s `v102`, then into the loop variables `v119` and `v109`.
+- **`interactiveScene.ts`** has three calls:
+  - Line 356: `v31` and `v32`, then the forEach parameters `v33` and `v34`, then `v35`–`v38`.
+  - Line 635: `v75` and `v76`, then `v77` and `v78`, then `v79`–`v82`.
+  - Line 794: `v97`, then the map parameter `v99`, then `bezierEquation`'s parameter `v32`.
+
+FINAL ANSWER
+packages/element/src/bounds.ts:371 sides variable
+packages/element/src/bounds.ts:371 corners variable
+packages/element/src/bounds.ts:373 corner param
+packages/element/src/bounds.ts:457 curve param
+packages/element/src/bounds.ts:444 sides param
+packages/element/src/bounds.ts:448 side param
+packages/element/src/binding.ts:3192 sides variable
+packages/element/src/binding.ts:3192 corners variable
+packages/element/src/binding.ts:3193 bottomRight variable
+packages/element/src/binding.ts:3193 bottomLeft variable
+packages/element/src/binding.ts:3193 topLeft variable
+packages/element/src/binding.ts:3193 topRight variable
+packages/element/src/binding.ts:3201 leftCorner variable
+packages/element/src/binding.ts:3202 midPoint variable
+packages/element/src/binding.ts:3215 rightCorner variable
+packages/element/src/binding.ts:3216 midPoint variable
+packages/element/src/binding.ts:3228 topCorner variable
+packages/element/src/binding.ts:3229 midPoint variable
+packages/element/src/binding.ts:3241 bottomCorner variable
+packages/element/src/binding.ts:3242 midPoint variable
+packages/element/src/binding.ts:3461 p1 param
+packages/element/src/binding.ts:3461 p2 param
+packages/element/src/distance.ts:104 sides variable
+packages/element/src/distance.ts:104 curves variable
+packages/element/src/distance.ts:105 s param
+packages/element/src/distance.ts:106 a param
+packages/math/src/segment.ts:121 line param
+packages/math/src/curve.ts:293 c param
+packages/element/src/collision.ts:779 sides variable
+packages/element/src/collision.ts:779 corners variable
+packages/element/src/collision.ts:629 lines param
+packages/element/src/collision.ts:587 curves param
+packages/element/src/collision.ts:634 l variable
+packages/element/src/collision.ts:604 c variable
+packages/excalidraw/renderer/interactiveScene.ts:356 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:356 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:361 segment param
+packages/excalidraw/renderer/interactiveScene.ts:375 curve param
+packages/excalidraw/renderer/interactiveScene.ts:376 start variable
+packages/excalidraw/renderer/interactiveScene.ts:376 control1 variable
+packages/excalidraw/renderer/interactiveScene.ts:376 control2 variable
+packages/excalidraw/renderer/interactiveScene.ts:376 end variable
+packages/excalidraw/renderer/interactiveScene.ts:635 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:635 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:641 segment param
+packages/excalidraw/renderer/interactiveScene.ts:654 curve param
+packages/excalidraw/renderer/interactiveScene.ts:655 start variable
+packages/excalidraw/renderer/interactiveScene.ts:655 control1 variable
+packages/excalidraw/renderer/interactiveScene.ts:655 control2 variable
+packages/excalidraw/renderer/interactiveScene.ts:655 end variable
+packages/excalidraw/renderer/interactiveScene.ts:794 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:797 curve param
+packages/math/src/curve.ts:116 c param
