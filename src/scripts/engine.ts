@@ -189,6 +189,16 @@ let classSupers = new Map<number, { name: string; chain: Scope[] }>();
  * other name (gap 8): a subclass can read a field its superclass declares
  * further down the file.
  */
+/**
+ * `new C(x)` and `super(x)` call C's constructor. The class's own binding
+ * carries the constructor's parameters, so `new C(x)` resolves exactly like a
+ * plain call `C(x)` — later declarations (gap 19) and imports (gap 16) included.
+ * Keyed like `classStack`.
+ */
+let classBindings = new Map<number, Binding>();
+/** Each class's own constructor's parameters, when it declares one. */
+let constructorParams = new Map<number, Binding[]>();
+
 /** Fields declared outright, keyed `${class}:${name}`. */
 let declaredFields = new Map<string, Binding>();
 /** Every field name each class declares or writes, keyed by class. */
@@ -310,6 +320,26 @@ function superclassOf(cls: number): number | undefined {
     const parent = classSupers.get(cls);
     const holder = parent && lookup(parent.name, parent.chain);
     return holder?.kind === "class" ? holder.start : undefined;
+}
+
+/**
+ * Give every class binding the parameters `new` reaches: its own constructor's,
+ * or the nearest in-file superclass's — a class with no constructor hands its
+ * arguments to its parent's. A chain that leaves the file ends with none, and
+ * `new C(x)` passes through, inferred, as an unknown call does.
+ */
+function inheritConstructors(): void {
+    for (const [cls, binding] of classBindings) {
+        const seen = new Set<number>();
+        for (let c: number | undefined = cls; c !== undefined && !seen.has(c); c = superclassOf(c)) {
+            seen.add(c);
+            const params = constructorParams.get(c);
+            if (params) {
+                binding.params = params;
+                break;
+            }
+        }
+    }
 }
 
 /** The name a non-computed member key or property stands for, as a field:
@@ -557,6 +587,8 @@ export function collectVariables(
     nextFunctionIsMethod = false;
     methodBindings = [];
     classSupers = new Map();
+    classBindings = new Map();
+    constructorParams = new Map();
     declaredFields = new Map();
     fieldNames = new Map();
     fieldWrites = [];
@@ -607,6 +639,7 @@ export function collectVariables(
     // Must run after the pending-use retry above: a use that resolved late was
     // attached there, and its feeds can hold a placeholder too. Fields first,
     // since a field read's feeds can hold one as well.
+    inheritConstructors();
     resolvePendingCalls(results, resolveFields(results));
 
     const { resolved, unresolved, external } = results.lookups;
@@ -1138,14 +1171,35 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
           ]
     */
 
-    if (node.type === "CallExpression") {
+    if (node.type === "CallExpression" || node.type === "NewExpression") {
         let calleeName: string | undefined;
+        // `super(x)` calls the superclass's constructor: the same as calling the
+        // superclass by name, looked up where the `extends` was written.
+        let superChain: Scope[] | undefined;
         if (node.callee.type === "Identifier") {
-            // Plain call ==> the name is at node.callee.name
+            // Plain call ==> the name is at node.callee.name. `new C(x)` too:
+            // C's binding carries its constructor's parameters.
             calleeName = node.callee.name;
-        } else if (node.callee.type === "MemberExpression" && !node.callee.computed) {
+        } else if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed) {
             // Method (dotted) call ==> the name is at node.callee.property.name
             calleeName = node.callee.property.name;
+        } else if (node.callee.type === "Super") {
+            const cls = classStack[classStack.length - 1];
+            const parent = cls === undefined ? undefined : classSupers.get(cls);
+            if (parent) {
+                calleeName = parent.name;
+                superChain = parent.chain;
+            }
+        } else if (node.type === "NewExpression") {
+            // `new ns.C(x)`, `new (f())(x)`: no constructor to find. The
+            // arguments still pass through to the new object, but that is
+            // assumed, so inferred — gap 18's rule. It used to be proven.
+            const previousInferred = currentFeedsInferred;
+            if (currentFeedTargets.length > 0) currentFeedsInferred = true;
+            for (const arg of node.arguments) walkVariables(arg, results, stack);
+            currentFeedsInferred = previousInferred;
+            walkVariables(node.callee, results, stack);
+            return;
         }
 
         if (calleeName !== undefined) {
@@ -1154,7 +1208,7 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
             const site: CallSite = {
                 start: node.range[0],
                 name: calleeName,
-                chain: chainOf(stack),
+                chain: superChain ?? chainOf(stack),
                 receiver: node.callee.type === "MemberExpression" ? receiverOf(node.callee.object) : undefined,
                 thisClass,
             };
@@ -1272,7 +1326,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
 
     // class Ranker {} — the class name
     if (node.type === "ClassDeclaration" && node.id) {
-        stack[stack.length - 1]!.declarations.push(makeBinding(node.id, "declaration", "class"));
+        const binding = makeBinding(node.id, "declaration", "class");
+        classBindings.set(node.id.range[0], binding);
+        stack[stack.length - 1]!.declarations.push(binding);
     }
 
     // score(result) {} — the name lives on node.key, the params on node.value.
@@ -1321,6 +1377,9 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         walkVariables(node.value, results, stack); // walk
         currentFeedTargets = previous; // restore
         currentFeedsInferred = previousInferred;
+        if (node.kind === "constructor" && methodBinding.methodOf !== undefined) {
+            constructorParams.set(methodBinding.methodOf, methodBinding.params ?? []);
+        }
         return; // node.key is the declaration itself, nothing to resolve there.
     }
 
@@ -1477,6 +1536,11 @@ function walkVariables(node: TSESTree.Node, results: Results, stack: Scope[]): v
         }
         savedThisClasses.push(thisClass);
         thisClass = id;
+        // `const C = class { constructor(p) {} }` — `new C(x)` finds `C`, the
+        // variable, so that is where the constructor's parameters go.
+        if (node.type === "ClassExpression" && currentFeedTargets.length === 1 && currentFeedTargets[0]!.kind === "variable") {
+            classBindings.set(id, currentFeedTargets[0]!);
+        }
     }
 
     for (const value of Object.values(node)) {

@@ -1477,3 +1477,64 @@ test("gap 20: an import links to the exported function, not a same-named field",
         "main.ts": `import { make } from "./f"; const x = 1; const y = make(x);`,
     })).toEqual(["make -> y", "x -> v"]);
 });
+
+// ==== Gap 20, continued: `new C(x)` and `super(x)` reach the constructor ====
+//
+// `new` used to be walked as a plain expression: every argument flowed straight
+// into the new object, proven, and never reached the constructor's parameters.
+// So a field's constructor write was unreachable from the call site, and every
+// argument looked like a source of everything read back from the object.
+
+test("gap 20: `new C(x)` reaches the constructor's parameter, not the new object", () => {
+    const edges = feedsWithMarks(`const a = 1; class P { constructor(px) {} } const p = new P(a);`);
+    expect(edges).toContain("a -> px");
+    expect(edges).not.toContain("a -> p");
+    expect(edges).not.toContain("~a -> p");
+    expect(edges).toContain("P -> p");
+});
+
+test("gap 20: `new` maps arguments by position", () => {
+    expect(feedsWithMarks(`const a = 1; const b = 2; class P { constructor(px, py) {} } new P(a, b);`))
+        .toEqual(["a -> px", "b -> py"]);
+});
+
+test("gap 20: `new` reaches a class declared later in the file", () => {
+    expect(feedsWithMarks(`const a = 1; const p = new P(a); class P { constructor(px) {} }`))
+        .toContain("a -> px");
+});
+
+test("gap 20: a class with no constructor hands `new`'s arguments to its superclass's", () => {
+    expect(feedsWithMarks(`const a = 1; class B { constructor(bq) {} } class K extends B {} new K(a);`))
+        .toContain("a -> bq");
+});
+
+test("gap 20: `super(x)` reaches the superclass's constructor", () => {
+    expect(feedsWithMarks(`class B { constructor(bq) {} } class K extends B { constructor(kz) { super(kz) } }`))
+        .toContain("kz -> bq");
+});
+
+test("gap 20: `new` on a class expression reaches its constructor", () => {
+    expect(feedsWithMarks(`const a = 1; const C = class { constructor(cq) {} }; new C(a);`))
+        .toContain("a -> cq");
+});
+
+// No constructor to find: the arguments pass through to the new object, as an
+// unknown call's do — but assumed, so inferred. They used to be proven.
+test("gap 20: `new` on a built-in passes through, inferred", () => {
+    expect(feedsWithMarks(`const a = 1; const d = new Date(a);`)).toEqual(["~a -> d"]);
+});
+
+test("gap 20: `new` on a member expression passes through, inferred", () => {
+    expect(feedsWithMarks(`const a = 1; const ns = {}; const d = new ns.C(a);`)).toContain("~a -> d");
+});
+
+test("gap 20: a class with neither constructor nor local superclass passes through, inferred", () => {
+    expect(feedsWithMarks(`const a = 1; class E {} const e = new E(a);`)).toContain("~a -> e");
+});
+
+test("gap 20: `new` on an imported class reaches its constructor in the other file", async () => {
+    expect(await crossFileEdges({
+        "p.ts": `export class P { constructor(px) {} }`,
+        "main.ts": `import { P } from "./p"; const a = 1; const p = new P(a);`,
+    })).toEqual(["P -> p", "a -> px"]);
+});
