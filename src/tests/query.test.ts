@@ -538,3 +538,27 @@ test("fields: a constructor argument reaches what another method returns", async
     expect(await reach(source, "m.ts:code", "forward"))
         .toEqual(["code@2", "getResponse@3", "res@6", "status@2"]);
 });
+
+// Gap 20 with `new` wired: the call site and the class now connect, and an
+// argument the object never hands back is no longer blamed for what it does.
+const POINT = [
+    "class Point {",                                        // 1
+    "  constructor(px, py) { this.x = px; this.y = py }",   // 2
+    "  getX() { return this.x }",                           // 3
+    "}",                                                    // 4
+    "const a = 1;",                                         // 5
+    "const b = 2;",                                         // 6
+    "const p = new Point(a, b);",                           // 7
+    "const out = p.getX();",                                // 8
+].join("\n");
+
+test("fields: forward from a constructor argument reaches what a method returns", async () => {
+    expect(await reach(POINT, "m.ts:a", "forward"))
+        .toEqual(["a@5", "getX@3", "out@8", "px@2", "x@2"]);
+});
+
+test("fields: backward from a method's result reaches only the argument it returns", async () => {
+    const sources = await reach(POINT, "m.ts:out", "backward");
+    expect(sources).toContain("a@5");
+    expect(sources).not.toContain("b@6");
+});
