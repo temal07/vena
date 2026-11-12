@@ -458,6 +458,29 @@ test("call matching: a result passed straight into another call keeps both calls
     expect(reached).not.toContain("z@7");
 });
 
+// Two nested calls share the `inner -> p` edge, one occurrence per pair. Each
+// inner result must stay paired with its own outer call: `a` reaches only `x`,
+// and `x` comes back only from `a`.
+const TWO_NESTED = [
+    "function inner(q) { return q }",     // 1
+    "function outer(p) { return p }",     // 2
+    "const a = 1;",                       // 3
+    "const b = 2;",                       // 4
+    "const x = outer(inner(a));",         // 5
+    "const y = outer(inner(b));",         // 6
+].join("\n");
+
+test("call matching: nested calls sharing an edge keep each inner result with its outer call", async () => {
+    for (const strict of [false, true]) {
+        const forward = await reach(TWO_NESTED, "m.ts:a", "forward", strict);
+        expect(forward).toContain("x@5");
+        expect(forward).not.toContain("y@6");
+        const backward = await reach(TWO_NESTED, "m.ts:x", "backward", strict);
+        expect(backward).toContain("a@3");
+        expect(backward).not.toContain("b@4");
+    }
+});
+
 // A function reached by aliasing rather than calling (`const g = id`) is not
 // inside any call, so its returns lead back to every argument, as before.
 test("call matching: backward through an alias of a function is not call-restricted", async () => {
