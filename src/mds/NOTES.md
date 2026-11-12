@@ -31,7 +31,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 | Runs on a *large* repo                       | ✅ 8,144 files, 0 parse failures, 23 s — but 1.2 GB graph |
 | Answer size at scale                         | ✅ p90 = 10 nodes, flat from 309 to 8,144 files |
 | JSX / `.tsx` support                         | ✅ Done — `.ts` stays non-JSX, see gap 13  |
-| Automated tests                              | ⏳ Partial — 173 tests across 2 files      |
+| Automated tests                              | ⏳ Partial — 193 tests across 2 files      |
 | Answers real questions end to end            | ✅ 19/20 on Hono, **0 wrong** — only Q9 (gap 20) left; modular repos not re-scored, BENCHMARK.md |
 | MCP wrapper                                  | ⏸ On hold — see item 3 in Next up         |
 
@@ -40,7 +40,7 @@ States are judged against *arbitrary* input, not against this repo — the Hono 
 
 ## What works
 
-Most of these are guarded by `bun test` (134 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
+Most of these are guarded by `bun test` (193 tests across `src/tests/engine.test.ts` and `src/tests/query.test.ts`); the rest were checked by reading `collectVariables` output.
 
 **Scope and shadowing.** `const x = 1; function f() { const x = 2; const y = x }` — the inner `x` feeds `y`; the outer `x` is untouched.
 
@@ -510,9 +510,11 @@ One pass over all uses rather than a scan per deferral: there are far more uses 
 
 **The failure mode is a missing edge, never a wrong one.** An unresolved placeholder keeps its negative start, which can't match any node id, so step 4's existing `if (!nodeIds.has(target)) continue` drops it and the call site produces nothing — exactly the behaviour before the fix. That guard is what makes the design safe rather than merely clever.
 
+**Superseded in November 2026 (PR #3): an unanswered placeholder now passes through first.** Gap 18 made every *other* unresolved call transparent, but deferred import calls skipped it — so `out = resolve(x)` with `resolve` from `"path"` gave no edge while `out = atob(x)` gave `~x -> out`. Running vena on itself caught it (`outArg` in `flow.ts` had no forward edges). Each deferred call now carries gap 18's fallback, and step 2b uses it when the import never yields a parameter: a package import, an unlinked one, or no parameter at that position. On this repo: proven edges unchanged at 765, 17 new inferred edges, none removed. A placeholder still produces no edge only when the call has nowhere to pass through to — a bare `greet(who);` statement.
+
 **Result on Hono:** graph edges **7,444 → 8,471 (+1,027, +13.8%)** over all 309 files. On library code, the 272 import call sites that dropped their arguments now defer instead, taking the share of arg-passing call sites with a parameter to feed from **15.9% to 26.6%**. (Two populations again — the edge count is all files, the call-site rate excludes tests.)
 
-Six tests cover it in `engine.test.ts`, five of which fail without the fix. The sixth — an import that resolves to nothing produces no edge — passes either way by construction; it guards the safety property rather than proving the feature.
+Six tests cover it in `engine.test.ts`, five of which fail without the fix. The sixth — an import that resolves to nothing produces no edge — passes either way by construction; it guards the safety property rather than proving the feature. It still holds after PR #3, because its call is a bare statement with no fallback; five more tests cover the pass-through.
 
 **Still open:** namespace imports (`import * as ns`, then `ns.foo(x)`). Default imports under a different local name (`import foo from "./x"` against `export default function bar`) were listed here too and now link — gap 21 asks the module for `default`. Step 2 matches on `param.name === binding.name`, so those never link, and this gap inherits that limitation from gap 7.
 
