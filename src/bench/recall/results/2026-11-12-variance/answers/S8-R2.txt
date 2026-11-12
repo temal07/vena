@@ -1,0 +1,62 @@
+Nine call sites; counted the for-of loop and the new*Element opts but excluded property reads (element.width etc.); counted Promise resolve as the enclosing function's return.
+
+```
+FINAL ANSWER
+excalidraw-app/collab/Collab.tsx:335 syncableElements param
+excalidraw-app/data/firebase.ts:192 elements param
+excalidraw-app/data/firebase.ts:132 elements param
+excalidraw-app/data/firebase.ts:176 elements param
+packages/excalidraw/data/reconcile.ts:74 localElements param
+packages/element/src/transform.ts:687 elements variable
+packages/element/src/transform.ts:696 element variable
+packages/element/src/transform.ts:697 excalidrawElement variable
+packages/element/src/newElement.ts:177 opts param
+packages/element/src/newElement.ts:233 opts param
+packages/element/src/newElement.ts:248 opts param
+packages/element/src/newElement.ts:256 opts param
+packages/element/src/newElement.ts:266 opts param
+packages/element/src/newElement.ts:283 opts param
+packages/element/src/newElement.ts:338 opts param
+packages/element/src/newElement.ts:603 opts param
+packages/element/src/newElement.ts:624 opts param
+packages/element/src/newElement.ts:653 opts param
+packages/element/src/newElement.ts:693 opts param
+packages/common/src/utils.ts:872 value param
+packages/excalidraw/data/library.ts:116 cloneLibraryItems return
+packages/excalidraw/data/library.ts:202 prevLibraryItems field
+packages/excalidraw/data/library.ts:199 currLibraryItems field
+packages/excalidraw/data/library.ts:233 nextLibraryItems variable
+packages/excalidraw/data/library.ts:268 getLatestLibrary return
+packages/excalidraw/data/library.ts:230 prevLibraryItems variable
+packages/excalidraw/data/library.ts:167 nextLibraryItems param
+packages/common/src/emitter.ts:41 payload param
+packages/excalidraw/data/library.ts:271 libraryItems variable
+packages/excalidraw/data/library.ts:146 localItems param
+packages/excalidraw/data/library.ts:351 setLibrary return
+packages/excalidraw/components/App.tsx:10855 allLibraryItems variable
+packages/excalidraw/components/LibraryMenuHeaderContent.tsx:183 libraryItems variable
+packages/excalidraw/actions/actionAddToLibrary.ts:34 items param
+packages/excalidraw/data/index.ts:49 prepareElementsForExport return
+packages/excalidraw/components/ImageExportDialog.tsx:108 exportedElements variable
+packages/excalidraw/actions/actionClipboard.tsx:142 exportedElements variable
+packages/excalidraw/actions/actionClipboard.tsx:215 exportedElements variable
+packages/excalidraw/data/resave.ts:36 exportedElements variable
+packages/excalidraw/data/index.ts:101 elements param
+packages/excalidraw/scene/export.ts:1367 opts param
+packages/excalidraw/components/App.tsx:2788 elements param
+packages/excalidraw/components/ImageExportDialog.tsx:411 appStateSnapshot variable
+packages/excalidraw/components/ImageExportDialog.tsx:411 elementsSnapshot variable
+packages/excalidraw/components/ImageExportDialog.tsx:66 appStateSnapshot param
+packages/excalidraw/components/ImageExportDialog.tsx:67 elementsSnapshot param
+packages/excalidraw/components/Stats/DragInput.tsx:100 originalAppState field
+packages/excalidraw/components/Stats/DragInput.tsx:265 originalAppState variable
+packages/excalidraw/components/Stats/DragInput.tsx:123 appState param
+packages/excalidraw/components/Stats/Position.tsx:39 originalAppState param
+packages/excalidraw/components/Stats/Dimension.tsx:53 originalAppState param
+packages/excalidraw/components/Stats/MultiDimension.tsx:196 originalAppState param
+packages/excalidraw/components/Stats/MultiPosition.tsx:139 originalAppState param
+packages/excalidraw/components/Stats/Dimension.tsx:291 originalAppState param
+packages/excalidraw/components/Stats/MultiDimension.tsx:442 originalAppState param
+packages/element/src/frame.ts:315 appState param
+packages/excalidraw/components/Stats/utils.ts:260 appState param
+```

@@ -1,0 +1,58 @@
+Seven call sites, each destructured; followed tuple parts, callback params, for-of loop variables and destructured curve parts; excluded values rebuilt from the tuple (cornerSegments, rotatedSides, Math.min returns, midpoints).
+
+```
+FINAL ANSWER
+packages/element/src/binding.ts:3192 sides variable
+packages/element/src/binding.ts:3192 corners variable
+packages/element/src/binding.ts:3193 bottomRight variable
+packages/element/src/binding.ts:3193 bottomLeft variable
+packages/element/src/binding.ts:3193 topLeft variable
+packages/element/src/binding.ts:3193 topRight variable
+packages/element/src/binding.ts:3201 leftCorner variable
+packages/element/src/binding.ts:3202 midPoint variable
+packages/element/src/binding.ts:3215 rightCorner variable
+packages/element/src/binding.ts:3216 midPoint variable
+packages/element/src/binding.ts:3228 topCorner variable
+packages/element/src/binding.ts:3229 midPoint variable
+packages/element/src/binding.ts:3241 bottomCorner variable
+packages/element/src/binding.ts:3242 midPoint variable
+packages/element/src/binding.ts:3461 p1 param
+packages/element/src/binding.ts:3461 p2 param
+packages/element/src/collision.ts:779 sides variable
+packages/element/src/collision.ts:779 corners variable
+packages/element/src/collision.ts:629 lines param
+packages/element/src/collision.ts:587 curves param
+packages/element/src/collision.ts:636 l variable
+packages/element/src/collision.ts:604 c variable
+packages/element/src/distance.ts:104 sides variable
+packages/element/src/distance.ts:104 curves variable
+packages/element/src/distance.ts:107 s param
+packages/element/src/distance.ts:108 a param
+packages/math/src/segment.ts:121 line param
+packages/math/src/curve.ts:293 c param
+packages/element/src/bounds.ts:371 sides variable
+packages/element/src/bounds.ts:371 corners variable
+packages/element/src/bounds.ts:373 corner param
+packages/element/src/bounds.ts:444 sides param
+packages/element/src/bounds.ts:448 side param
+packages/element/src/bounds.ts:457 curve param
+packages/excalidraw/renderer/interactiveScene.ts:356 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:356 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:361 segment param
+packages/excalidraw/renderer/interactiveScene.ts:375 curve param
+packages/excalidraw/renderer/interactiveScene.ts:376 start variable
+packages/excalidraw/renderer/interactiveScene.ts:376 control1 variable
+packages/excalidraw/renderer/interactiveScene.ts:376 control2 variable
+packages/excalidraw/renderer/interactiveScene.ts:376 end variable
+packages/excalidraw/renderer/interactiveScene.ts:635 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:635 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:641 segment param
+packages/excalidraw/renderer/interactiveScene.ts:655 curve param
+packages/excalidraw/renderer/interactiveScene.ts:656 start variable
+packages/excalidraw/renderer/interactiveScene.ts:656 control1 variable
+packages/excalidraw/renderer/interactiveScene.ts:656 control2 variable
+packages/excalidraw/renderer/interactiveScene.ts:656 end variable
+packages/excalidraw/renderer/interactiveScene.ts:794 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:797 curve param
+packages/math/src/curve.ts:116 c param
+```

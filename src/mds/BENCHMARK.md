@@ -730,3 +730,43 @@ The stripped run also found **26 real destinations that no arm of #5 listed**, 2
 - Comments, function names and property names still carry meaning; a fully obfuscated build was not tested.
 - One run per cell. The 96% vs 94% gap is within what one different judgement call moves.
 - Adjudicated by the same model family, under rules settled in #5.
+
+# Benchmark #5c — do repeated agent runs agree? (November 12 2026)
+
+#5b found that a second agent run listed 25 destinations the first chose to skip. This measures that directly: arm A's prompt, unchanged, run twice more per seed by fresh agents on the original repo — three independent runs of the same question (#5's arm A, R2, R3). Agreement is the share of destinations listed by any run that every run listed; it needs no ground truth. New candidates (7) were adjudicated under #5's rules, so recall is against the full pool.
+
+| seed | listed by any run | by every run | agreement | recall A / R2 / R3 | spread |
+| --- | --- | --- | --- | --- | --- |
+| S1 BAR_GAP | 26 | 26 | 100% | 26 / 26 / 26 of 26 | 0 |
+| S2 roundArrowIcon | 12 | 9 | 75% | 9 / 10 / 10 of 10 | 10 pts |
+| S3 CANVAS_SEARCH_TAB | 6 | 4 | 67% | 5 / 5 / 4 of 5 | 20 pts |
+| S4 copyIcon | 8 | 8 | 100% | 8 / 8 / 8 of 8 | 0 |
+| S5 bucketFillIcon | 12 | 11 | 92% | 12 / 12 / 11 of 14 | 7 pts |
+| S6 deconstructDiamondElement | 60 | 53 | 88% | 53 / 53 / 53 of 53 | 0 |
+| S7 shouldTestInside | 1 | 1 | 100% | 1 / 1 / 1 of 1 | 0 |
+| S8 cloneJSON | 62 | 37 | **60%** | 38 / 53 / 41 of 70 | **21 pts** |
+| S9 isExcalidrawElement | 0 | 0 | — | — | — |
+| S10 getColorTargetElement | 3 | 3 | 100% | 3 / 3 / 3 of 5 | 0 |
+| **total** | 190 | 152 | **80%** | **81% / 89% / 82%** | |
+
+**Small questions get the same answer every time; the largest one doesn't.** Five seeds agree completely. S8 — the value with the most destinations (70) — has three runs that share only 60% of what they list, and recall from 54% to 76%.
+
+**The disagreement is interpretation, not search.** On S8, what only one run listed:
+
+- **R2 only (19):** the `for (const element of elements)` loop in `transform.ts` and everything after it (`element`, `excalidrawElement`, eleven `new*Element` `opts`, `assertNever`), Promise `resolve` as a function's return (`getLatestLibrary`, `setLibrary`), and hop-4 items it counted as hop 3.
+- **R3 only (3):** returns of anonymous arrows — the `useState` initializer, a jotai updater, a `.catch` handler — which the other runs skipped because the function has no name.
+- **A only (2):** the `onLibraryChange` type signature (false) and `cloneLibraryItems`'s own parameter.
+
+Each run read the code correctly. They differed on whether a loop variable, a Promise resolution or an unnamed function's return counts as "where the value goes" — the same questions #5's adjudication rules had to settle. The prompt defined five hop kinds; the code had more, and each run filled the gap its own way.
+
+## What it means
+
+- **For one question at a time, agents are consistent enough.** A developer asking "where does this go?" gets close to the same answer each time, and the answers that differ are each defensible.
+- **Where flow is large — the case a tool would exist for — runs disagree on 40% of what they list.** A PR check or audit built on agent runs would report flows appearing and disappearing between identical commits.
+- **The missing piece is a definition, not intelligence.** Every disagreement maps to a rule #5 had to write down after the fact. A tool that ships those rules, applied the same way on every run, owns the one property agents don't have. Today vena has the determinism but not the rules: it would answer S8 identically every time, and identically wrong (7 of 70).
+
+## Threats to validity
+
+- Three runs per seed; agreement on small seeds may hide variation a fourth run would show.
+- Run files store each agent's `FINAL ANSWER` block and a one-line summary, not the full reasoning.
+- Same adjudicator and rules as #5.

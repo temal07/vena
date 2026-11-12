@@ -1,0 +1,4 @@
+One destination: getFreedrawShape's isClosed; the other three calls are conditions.
+
+FINAL ANSWER
+packages/utils/src/shape.ts:270 isClosed param

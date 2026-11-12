@@ -1,0 +1,8 @@
+Three destinations; left out property reads (.type at shapeActionPredicates.ts:75, .backgroundColor at actionProperties.tsx:546) and targets.push(editing).
+
+```
+FINAL ANSWER
+packages/excalidraw/actions/actionProperties.tsx:499 editingTarget variable
+packages/excalidraw/actions/colorTargets.ts:120 editing variable
+packages/excalidraw/actions/colorTargets.ts:109 element param
+```

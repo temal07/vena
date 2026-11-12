@@ -1,0 +1,6 @@
+Three destinations; property reads (.type, .backgroundColor) and targets.push left out.
+
+FINAL ANSWER
+packages/excalidraw/actions/colorTargets.ts:120 editing variable
+packages/excalidraw/actions/colorTargets.ts:109 element param
+packages/excalidraw/actions/actionProperties.tsx:499 editingTarget variable

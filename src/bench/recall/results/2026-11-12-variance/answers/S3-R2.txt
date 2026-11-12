@@ -1,0 +1,8 @@
+Two tab props, perform's return -> updater actionResult -> withBatchedUpdates event; comparisons (incl. isForceDocked) not counted; App.tsx:3134 left out as hop 4.
+
+FINAL ANSWER
+packages/excalidraw/components/Sidebar/SidebarTabTrigger.tsx:7 tab param
+packages/excalidraw/components/Sidebar/SidebarTab.tsx:6 tab param
+packages/excalidraw/actions/actionToggleSearchMenu.ts:25 perform return
+packages/excalidraw/actions/manager.tsx:67 actionResult param
+packages/excalidraw/reactUtils.ts:15 event param

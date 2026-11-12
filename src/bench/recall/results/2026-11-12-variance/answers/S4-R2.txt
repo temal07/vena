@@ -1,0 +1,11 @@
+FilledButton icon (3 call sites), ElementCanvasButton props -> IconButton props, register action -> actions / register return -> actionCopyElementLink / registerAll actions.
+
+FINAL ANSWER
+packages/excalidraw/components/FilledButton.tsx:43 icon param
+packages/excalidraw/components/MagicButton.tsx:7 props param
+packages/excalidraw/components/IconButton.tsx:69 props param
+packages/excalidraw/actions/register.ts:10 action param
+packages/excalidraw/actions/register.ts:3 actions variable
+packages/excalidraw/actions/register.ts:5 register return
+packages/excalidraw/actions/actionElementLink.ts:16 actionCopyElementLink variable
+packages/excalidraw/actions/manager.tsx:85 actions param

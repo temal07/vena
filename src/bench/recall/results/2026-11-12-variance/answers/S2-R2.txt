@@ -1,0 +1,13 @@
+Four uses: Actions.tsx inline arrow return, SHAPES -> map icon -> IconButton props, getArrowTypeIcon -> show content -> updateEditorAtom args, RadioSelection props -> option -> RadioButton props.
+
+FINAL ANSWER
+packages/excalidraw/components/Actions.tsx:358 <anonymous> return
+packages/excalidraw/components/ConvertElementTypePopup.tsx:301 SHAPES variable
+packages/excalidraw/components/ConvertElementTypePopup.tsx:333 icon param
+packages/excalidraw/components/IconButton.tsx:69 props param
+packages/excalidraw/components/CursorHint.tsx:41 getArrowTypeIcon return
+packages/excalidraw/components/CursorHint.tsx:66 content param
+packages/excalidraw/components/App.tsx:1096 args param
+packages/excalidraw/components/RadioSelection.tsx:7 props param
+packages/excalidraw/components/RadioSelection.tsx:31 option param
+packages/excalidraw/components/RadioButton.tsx:18 props param

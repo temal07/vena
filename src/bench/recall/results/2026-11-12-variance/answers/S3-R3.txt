@@ -1,0 +1,8 @@
+Two tab props; perform return -> updater actionResult -> App.syncActionResult actionResult (treated the withBatchedUpdates wrapper as transparent); comparisons left out.
+
+FINAL ANSWER
+packages/excalidraw/components/Sidebar/SidebarTabTrigger.tsx:7 tab param
+packages/excalidraw/components/Sidebar/SidebarTab.tsx:6 tab param
+packages/excalidraw/actions/actionToggleSearchMenu.ts:25 perform return
+packages/excalidraw/actions/manager.tsx:67 actionResult param
+packages/excalidraw/components/App.tsx:3134 actionResult param

@@ -1,0 +1,29 @@
+Same chains as the other runs; _newElementBase x/y cited at 91/92.
+
+FINAL ANSWER
+packages/excalidraw/charts/charts.constants.ts:30 RADAR_LABEL_OFFSET variable
+packages/excalidraw/charts/charts.constants.ts:31 RADAR_PADDING variable
+packages/excalidraw/charts/charts.constants.ts:35 RADAR_AXIS_LABEL_CLEARANCE variable
+packages/excalidraw/charts/charts.constants.ts:37 RADAR_LEGEND_ITEM_GAP variable
+packages/excalidraw/charts/charts.constants.ts:38 RADAR_LEGEND_TEXT_GAP variable
+packages/excalidraw/charts/charts.helpers.ts:358 yNudge variable
+packages/excalidraw/charts/charts.helpers.ts:393 fallbackLegendY param
+packages/excalidraw/charts/charts.helpers.ts:153 chartWidth variable
+packages/excalidraw/charts/charts.helpers.ts:154 chartHeight variable
+packages/excalidraw/charts/charts.helpers.ts:152 getRadarDimensions return
+packages/excalidraw/charts/charts.helpers.ts:353 radialOffset variable
+packages/excalidraw/charts/charts.helpers.ts:355 anchorX variable
+packages/excalidraw/charts/charts.helpers.ts:356 anchorY variable
+packages/excalidraw/charts/charts.helpers.ts:419 itemWidth variable
+packages/excalidraw/charts/charts.helpers.ts:433 legendY variable
+packages/excalidraw/charts/charts.helpers.ts:438 pillPaddingX variable
+packages/excalidraw/charts/charts.helpers.ts:440 totalLegendWidth variable
+packages/excalidraw/charts/charts.helpers.ts:443 pillWidth variable
+packages/excalidraw/charts/charts.helpers.ts:465 cursorX variable
+packages/excalidraw/charts/charts.helpers.ts:272 maxWidth param
+packages/element/src/textWrapping.ts:401 maxWidth param
+packages/element/src/newElement.ts:338 opts param
+packages/element/src/newElement.ts:177 opts param
+packages/element/src/newElement.ts:370 textElementProps variable
+packages/element/src/newElement.ts:91 x param
+packages/element/src/newElement.ts:92 y param

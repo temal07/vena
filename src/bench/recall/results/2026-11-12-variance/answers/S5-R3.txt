@@ -1,0 +1,14 @@
+defineTools -> TOOLS; dropdown item icon -> MenuItemContent; trigger children; extraIcon; additionalCommands -> allCommands / map command / find command; React state via setter left out.
+
+FINAL ANSWER
+packages/excalidraw/components/Tools.tsx:60 tools param
+packages/excalidraw/components/Tools.tsx:60 defineTools return
+packages/excalidraw/components/Tools.tsx:69 TOOLS variable
+packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx:31 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx:9 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx:9 children param
+packages/excalidraw/components/MobileToolbar.tsx:136 extraIcon variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:424 additionalCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:607 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:611 command param
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:625 command param

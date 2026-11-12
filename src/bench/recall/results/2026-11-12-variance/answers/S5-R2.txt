@@ -1,0 +1,15 @@
+Toolbar/MobileToolbar dropdown trigger children and item icon -> MenuItemContent icon, extraIcon, defineTools -> TOOLS, additionalCommands -> allCommands / map command -> state allCommands (counted the setter) / find command.
+
+FINAL ANSWER
+packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx:9 children param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx:32 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx:9 icon param
+packages/excalidraw/components/MobileToolbar.tsx:136 extraIcon variable
+packages/excalidraw/components/Tools.tsx:60 tools param
+packages/excalidraw/components/Tools.tsx:60 defineTools return
+packages/excalidraw/components/Tools.tsx:69 TOOLS variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:424 additionalCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:607 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:611 command param
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:210 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:625 command param

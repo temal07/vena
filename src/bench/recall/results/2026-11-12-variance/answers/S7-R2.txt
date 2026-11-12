@@ -1,0 +1,6 @@
+One destination: getFreedrawShape's isClosed (shape.ts:1211 call); the other three calls use the boolean only as a ternary/if test.
+
+```
+FINAL ANSWER
+packages/utils/src/shape.ts:270 isClosed param
+```

@@ -1,0 +1,5 @@
+No destinations: every use of the result is a condition (bounds.ts:1557 ternary test, App.viewport.ts:141 if, actionStyles.ts:93 if, actionTextAutoResize.ts:39 ternary test); actionStyles.ts:105 passes the function itself to the built-in filter.
+
+```
+FINAL ANSWER
+```

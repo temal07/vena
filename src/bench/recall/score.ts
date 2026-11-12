@@ -65,7 +65,7 @@ async function pool(seedsPath: string, venaPath: string, answersDir: string, adj
     const { seeds } = await Bun.file(seedsPath).json();
     const vena = (await Bun.file(venaPath).json()).answers;
     const existing: Adjudication = (await Bun.file(adjPath).exists()) ? await Bun.file(adjPath).json() : {};
-    const replies = (await readdir(answersDir).catch(() => [] as string[])).filter((f) => /^S\d+-[A-Z]\.txt$/.test(f));
+    const replies = (await readdir(answersDir).catch(() => [] as string[])).filter((f) => /^S\d+-[A-Za-z0-9]+\.txt$/.test(f));
     const adj: Adjudication = {};
 
     for (const seed of seeds) {
