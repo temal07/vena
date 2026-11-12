@@ -23,7 +23,10 @@
  * - `"import"`    — a local name bound by an `import` specifier. flow.ts
  *                   later resolves these to the real declaration in the
  *                   imported file and merges the uses onto it, so "import"
- *                   bindings never make it into the final graph themselves.
+ *                   bindings never make it into the final graph themselves. * - `"field"`     — an instance field of a class: `this.x`, keyed by class and
+ *                   name (gap 20). Declared by a class property (`x = 1`), a
+ *                   parameter property (`constructor(private x)`), or the
+ *                   first `this.x =` write when neither exists.
  */
 export type Kind = "function" |
     "param" |
@@ -32,7 +35,8 @@ export type Kind = "function" |
     "type" |
     "conditional" |
     "catch" |
-    "import"
+    "import" |
+    "field"
 ;
 
 /**
@@ -86,6 +90,10 @@ export interface Binding {
      *  is what keeps a bare `score()` from resolving to it and lets `this.m()`
      *  pick the enclosing class's `m` (gap 1). */
     methodOf?: number;
+    /** For `kind: "field"` only: the class the field belongs to, keyed like
+     *  `methodOf`. Fields stay out of every lexical scope — a bare `x` is never
+     *  `this.x` — so only a `this.x` inside that class or a subclass finds one. */
+    fieldOf?: number;
     /** Never on a declaration. Set only on the per-call copy of a parameter
      *  that engine.ts uses as a feed target while walking that call's
      *  arguments: the call's start offset, carried into every feed stamped

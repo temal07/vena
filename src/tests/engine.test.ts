@@ -1352,3 +1352,128 @@ test("review: an import never links to a class method of the same name", async (
     expect(edges).toContain("z -> x");
     expect(edges).not.toContain("z -> q");
 });
+
+// ==== Gap 20: instance fields ====
+//
+// `this.x = y` used to produce no edge, and neither did a read of `this.x`, so
+// a value stored on an object went nowhere. A field is now one node per class
+// and name, and exists only once something declares or writes it.
+
+/** Every field node as `name@line`, sorted. */
+function fieldsOf(lines: string[]): string[] {
+    const ast = parse(lines.join("\n"), { loc: true, range: true });
+    const results = collectVariables(ast as any, "/test.ts");
+    return results.declarations.filter((d) => d.kind === "field").map((d) => `${d.name}@${d.line}`).sort();
+}
+
+test("gap 20: a constructor write reaches a read in another method", () => {
+    const edges = feedsByLine([
+        "class C {",                               // 1
+        "  constructor(v) { this.f = v }",         // 2
+        "  get() { const r = this.f; return r }",  // 3
+        "}",
+    ]);
+    expect(edges).toContain("v@2 -> f@2");
+    expect(edges).toContain("f@2 -> r@3");
+});
+
+test("gap 20: a returned field is one of the method's returns", () => {
+    const ast = parse("class C { constructor(v) { this.f = v } get() { return this.f } }", { loc: true, range: true });
+    const results = collectVariables(ast as any, "/test.ts");
+    const get = results.declarations.find((d) => d.name === "get")!;
+    expect(get.returns?.map((r) => r.name)).toEqual(["f"]);
+});
+
+test("gap 20: a class property's initialiser feeds the field", () => {
+    const edges = feedsByLine([
+        "const k = 1;",                            // 1
+        "class C {",                               // 2
+        "  f = k;",                                // 3
+        "  m() { const r = this.f }",              // 4
+        "}",
+    ]);
+    expect(edges).toContain("k@1 -> f@3");
+    expect(edges).toContain("f@3 -> r@4");
+});
+
+test("gap 20: a class property's key is not a read of a variable with its name", () => {
+    const edges = feedsByLine(["const x = 1;", "class C { x = 2; m() { const r = this.x } }"]);
+    expect(edges).toEqual(["x@2 -> r@2"]);
+});
+
+test("gap 20: a parameter property feeds its field and keeps its parameter position", () => {
+    const ast = parse("class C { constructor(private p, q) {} m() { const r = this.p } }", { loc: true, range: true });
+    const results = collectVariables(ast as any, "/test.ts");
+    const ctor = results.declarations.find((d) => d.name === "constructor")!;
+    expect(ctor.params?.map((p) => p.name)).toEqual(["p", "q"]);
+    expect(feedsWithMarks("class C { constructor(private p, q) {} m() { const r = this.p } }"))
+        .toEqual(["p -> p", "p -> r"]);
+});
+
+// Two classes with a field of the same name are two fields. Matching `obj.x`
+// by name alone would be gap 1's collision problem all over again.
+test("gap 20: same-named fields in two classes stay separate", () => {
+    const edges = feedsByLine([
+        "class A { constructor(a) { this.f = a } ga() { const ra = this.f } }",   // 1
+        "class B { constructor(b) { this.f = b } gb() { const rb = this.f } }",   // 2
+    ]);
+    expect(edges).toContain("f@1 -> ra@1");
+    expect(edges).toContain("f@2 -> rb@2");
+    expect(edges).not.toContain("f@1 -> rb@2");
+    expect(edges).not.toContain("f@2 -> ra@1");
+});
+
+test("gap 20: a subclass reads the field its superclass writes, declared later or not", () => {
+    const lines = [
+        "class B extends A { m() { const r = this.f } }",   // 1
+        "class A { constructor(v) { this.f = v } }",        // 2
+    ];
+    expect(feedsByLine(lines)).toContain("f@2 -> r@1");
+    expect(fieldsOf(lines)).toEqual(["f@2"]);
+});
+
+test("gap 20: a subclass writing an inherited field writes the superclass's", () => {
+    const lines = [
+        "class A { f = 0; m() { const r = this.f } }",       // 1
+        "class B extends A { set(v) { this.f = v } }",       // 2
+    ];
+    expect(feedsByLine(lines)).toContain("v@2 -> f@1");
+    expect(fieldsOf(lines)).toEqual(["f@1"]);
+});
+
+// A read alone makes no field: `this.render` is a method, and a name no class
+// here writes may come from a superclass in another file. Inventing a node
+// would join reads that have nothing to do with each other.
+test("gap 20: a read with no write or declaration makes no field", () => {
+    expect(fieldsOf(["class C { m() { const r = this.render } render() {} }"])).toEqual([]);
+});
+
+test("gap 20: `this` inside a plain function is not the class", () => {
+    const lines = ["class C { constructor(v) { this.f = v } m() { function g() { const r = this.f } } }"];
+    expect(feedsByLine(lines)).not.toContain("f@1 -> r@1");
+});
+
+test("gap 20: an arrow keeps the class's `this`", () => {
+    const lines = ["class C { constructor(v) { this.f = v } m() { const g = () => { const r = this.f } } }"];
+    expect(feedsByLine(lines)).toContain("f@1 -> r@1");
+});
+
+test("gap 20: a private field is not the public field of the same name", () => {
+    const lines = ["class C { #f = 1; constructor(v) { this.f = v } m() { const r = this.#f } }"];
+    expect(fieldsOf(lines)).toEqual(["#f@1", "f@1"]);
+    expect(feedsByLine(lines)).toContain("#f@1 -> r@1");
+});
+
+test("gap 20: a static property is not an instance field", () => {
+    expect(fieldsOf(["class C { static f = 1 }"])).toEqual([]);
+});
+
+// Hono's `Factory` has a `createMiddleware` field next to an exported function
+// of the same name. Fields share the declarations list, and the export lookup
+// took the first match — every import of `createMiddleware` linked to the field.
+test("gap 20: an import links to the exported function, not a same-named field", async () => {
+    expect(await crossFileEdges({
+        "f.ts": `export class F { make = () => 1 }\nexport const make = (v) => v;`,
+        "main.ts": `import { make } from "./f"; const x = 1; const y = make(x);`,
+    })).toEqual(["make -> y", "x -> v"]);
+});
