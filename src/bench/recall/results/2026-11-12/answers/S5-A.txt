@@ -1,0 +1,51 @@
+I found 11 destinations within 3 hops, along five paths. `bucketFillIcon` is used in 5 non-test files: `Tools.tsx`, `MobileToolbar.tsx`, `Toolbar.tsx`, `CommandPalette/CommandPalette.tsx` and `PasteChartDialog.tsx`. Two inclusions are judgement calls, listed at the end.
+
+**`Tools.tsx`**
+1. The object literal `{ ..., bucketfill: { icon: bucketFillIcon } }` is the argument to `defineTools(tools)`, so the param `tools` (line 60) is hop 1.
+2. `defineTools` returns `tools`, so the return of `defineTools` (line 60) is hop 2.
+3. `export const TOOLS = defineTools(...)` makes `TOOLS` (line 69) hop 3.
+- Reads like `config = TOOLS[type]` in `Tools.tsx` and `CommandPalette.tsx` would be hop 4, so they are not listed.
+
+**`MobileToolbar.tsx`**
+1. `const extraIcon = ... ? bucketFillIcon : ...` (line 136) is hop 1.
+2. `extraIcon` is passed as children of `<DropdownMenu.Trigger>`, which lands in `MenuTrigger`'s `children` param (`dropdownMenu/DropdownMenuTrigger.tsx:9`). That is hop 2.
+3. From there it goes to the radix `Trigger`, which is outside the repo, so the trail ends.
+- Separately, `<DropdownMenu.Item icon={bucketFillIcon}>` lands in the `icon` param of `DropdownMenuItem` (`dropdownMenu/DropdownMenuItem.tsx:31`), hop 1.
+- That passes it on as `<MenuItemContent icon={icon}>`, the `icon` param at `dropdownMenu/DropdownMenuItemContent.tsx:9`, hop 2.
+- Inside, it is only rendered inside a `<div>`, so nothing further.
+
+**`Toolbar.tsx`**
+- The ternary child of `<DropdownMenu.Trigger>` (line 115) reaches the same `MenuTrigger` `children` param.
+- `<DropdownMenu.Item icon={bucketFillIcon}>` (line 176) follows the same `DropdownMenuItem` → `MenuItemContent` route as above.
+
+**`CommandPalette/CommandPalette.tsx`**
+1. Three object literals with `icon: bucketFillIcon` (lines 467, 485, 508) initialise `additionalCommands` (line 424). That is hop 1.
+2. Hop 2 has two destinations:
+   - `const allCommands = [...additionalCommands, ...].map(...)` gives `allCommands` (line 607).
+   - The `.map` callback param `command` (line 611).
+3. Hop 3 has two destinations:
+   - `setAllCommands(allCommands)` puts it in the state variable `allCommands` (line 210).
+   - `[...allCommands, ...].find((command) => ...)` gives that callback's param `command` (line 625).
+
+**`PasteChartDialog.tsx`**
+- `{bucketFillIcon}` is only a child of a plain `<div>` (line 250), so it lands nowhere.
+
+**Judgement calls**
+- **State `allCommands` (line 210):** I counted it, because the value reaches it only through React's `setAllCommands` setter.
+- **Anonymous `.map` callback return:** I left it out, because it has no name to cite.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/Tools.tsx:60 tools param
+packages/excalidraw/components/Tools.tsx:60 defineTools return
+packages/excalidraw/components/Tools.tsx:69 TOOLS variable
+packages/excalidraw/components/MobileToolbar.tsx:136 extraIcon variable
+packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx:9 children param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx:31 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx:9 icon param
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:424 additionalCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:607 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:611 command param
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:210 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:625 command param
+```

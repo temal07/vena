@@ -1,0 +1,47 @@
+I found 7 calls of `deconstructDiamondElement`, all of the form `const [a, b] = deconstructDiamondElement(...)`. They are in binding.ts, bounds.ts, collision.ts, distance.ts and three places in interactiveScene.ts. There are no re-exports or test-only uses to account for. I read each call site and the functions the values pass into, and checked them against vena-trace.
+
+Judgement calls:
+- **Callback parameters left out:** I did not count parameters of callbacks given to built-ins (`.forEach`, `.map`) as destinations, which matches vena-trace. That excludes `segment` and `curve` in the forEach loops in interactiveScene.ts, `corner` passed to `getSegmentsOnCurve` in bounds.ts, and `s` passed to `distanceToLineSegment` in distance.ts.
+- **Loop variables added:** I added two `for…of` loop variables that vena-trace did not report: `c` at collision.ts:604 (hop 3, over the `curves` parameter) and `l` at collision.ts:636 (hop 3, over the `lines` parameter). I counted them because they start out as an element of the returned value, the same way `const leftCorner = corners[2]` does.
+- **Kept per the graph:** The returns of `distanceToDiamondElement` and `distanceToElement` are only `Math.min` of distances computed from `sides` and `curves`. I kept them because vena-trace reports them and the rules count a value that is only part of an expression.
+- **Past 3 hops:** `rotatedSides` in bounds.ts is hop 4. The `x`/`y` assignments in binding.ts are hop 4. The `midPoint` results of `getMidPoint(...)` in binding.ts are hop 4.
+
+FINAL ANSWER
+packages/excalidraw/renderer/interactiveScene.ts:356 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:356 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:635 segments variable
+packages/excalidraw/renderer/interactiveScene.ts:635 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:794 curves variable
+packages/excalidraw/renderer/interactiveScene.ts:792 midpoints variable
+packages/element/src/bounds.ts:371 sides variable
+packages/element/src/bounds.ts:371 corners variable
+packages/element/src/bounds.ts:444 sides param
+packages/element/src/bounds.ts:443 getRotatedSides return
+packages/element/src/bounds.ts:372 cornerSegments variable
+packages/element/src/bounds.ts:309 getElementLineSegments return
+packages/element/src/binding.ts:3192 sides variable
+packages/element/src/binding.ts:3192 corners variable
+packages/element/src/binding.ts:3193 bottomRight variable
+packages/element/src/binding.ts:3193 bottomLeft variable
+packages/element/src/binding.ts:3193 topLeft variable
+packages/element/src/binding.ts:3193 topRight variable
+packages/element/src/binding.ts:3461 p1 param
+packages/element/src/binding.ts:3461 p2 param
+packages/element/src/binding.ts:3201 leftCorner variable
+packages/element/src/binding.ts:3202 midPoint variable
+packages/element/src/binding.ts:3215 rightCorner variable
+packages/element/src/binding.ts:3216 midPoint variable
+packages/element/src/binding.ts:3228 topCorner variable
+packages/element/src/binding.ts:3229 midPoint variable
+packages/element/src/binding.ts:3241 bottomCorner variable
+packages/element/src/binding.ts:3242 midPoint variable
+packages/element/src/distance.ts:104 sides variable
+packages/element/src/distance.ts:104 curves variable
+packages/element/src/distance.ts:93 distanceToDiamondElement return
+packages/element/src/distance.ts:30 distanceToElement return
+packages/element/src/collision.ts:779 sides variable
+packages/element/src/collision.ts:779 corners variable
+packages/element/src/collision.ts:629 lines param
+packages/element/src/collision.ts:587 curves param
+packages/element/src/collision.ts:636 l variable
+packages/element/src/collision.ts:604 c variable

@@ -1,0 +1,29 @@
+I found 8 destinations of `roundArrowIcon` within 3 hops. The name is used in 4 places outside `icons.tsx`, and there are no re-exports or test uses to follow.
+
+**`ConvertElementTypePopup.tsx`**
+- **Hop 1:** the tuple `["curvedArrow", roundArrowIcon]` initialises the `SHAPES` array (line 301).
+- **Hop 2:** `SHAPES.map(([type, icon]) => …)` puts the value in the callback parameter `icon` (line 333).
+- **Hop 3:** `<IconButton icon={icon} …>` sends it into `IconButton`'s props. Its signature destructures `size`, `visible` and `className` and gathers the rest into `...props`, so the destination is `props` (`IconButton.tsx`:69).
+
+**`CursorHint.tsx`**
+- **Hop 1:** the ternary in `getArrowTypeIcon` (line 41) returns `roundArrowIcon`.
+- **Hop 2:** that return value is passed straight to `this.show(...)` at lines 87 and 100, so `show`'s parameter `content` (line 65) is a destination.
+- **Hop 3:** `this.app.updateEditorAtom(cursorHintAtom, { content, nonce })` puts it in `updateEditorAtom`'s rest parameter `args` (`components/App.tsx`:1096).
+
+**`actionProperties.tsx`**
+- **Hop 1:** `<RadioSelection options={[…, { icon: roundArrowIcon, … }]}>` puts it in `RadioSelection`'s `props` (`RadioSelection.tsx`:7).
+- **Hop 2:** `props.options.map((option) => …)` puts it in the callback parameter `option` (line 31).
+- **Hop 3:** `<RadioButton icon={option.icon} …>` puts it in `RadioButton`'s `props` (`RadioButton.tsx`:18).
+
+**`Actions.tsx`:382** is a judgement call. There, `return roundArrowIcon;` is inside an anonymous arrow function that is called on the spot. Its result is rendered directly as a JSX child, and it is never stored in a variable or passed as an argument. That is the return of a function with no name, so I left it out. If unnamed function returns count, add it, cited at that arrow function's declaration line in `Actions.tsx`.
+
+FINAL ANSWER
+packages/excalidraw/components/ConvertElementTypePopup.tsx:301 SHAPES variable
+packages/excalidraw/components/ConvertElementTypePopup.tsx:333 icon param
+packages/excalidraw/components/IconButton.tsx:69 props param
+packages/excalidraw/components/CursorHint.tsx:41 getArrowTypeIcon return
+packages/excalidraw/components/CursorHint.tsx:65 content param
+packages/excalidraw/components/App.tsx:1096 args param
+packages/excalidraw/components/RadioSelection.tsx:7 props param
+packages/excalidraw/components/RadioSelection.tsx:31 option param
+packages/excalidraw/components/RadioButton.tsx:18 props param

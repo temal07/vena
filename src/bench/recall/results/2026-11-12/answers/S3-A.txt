@@ -1,0 +1,32 @@
+I traced every use of `CANVAS_SEARCH_TAB` outside the test files and found five destinations, one of them uncertain.
+
+**Comparisons only, no destination:**
+- `HintViewer.tsx:55`
+- `DefaultSidebar.tsx:77`
+- `actionToggleSearchMenu.ts:32`
+- `excalidraw-app/data/LocalData.ts:85`
+
+At each of these the value is only compared with `===`. The result is a boolean, so the value itself goes nowhere.
+
+**JSX props, one hop each:**
+- `<Sidebar.TabTrigger tab={CANVAS_SEARCH_TAB}>` in `DefaultSidebar.tsx` reaches the destructured `tab` prop of `SidebarTabTrigger`, in `components/Sidebar/SidebarTabTrigger.tsx`, line 7.
+- `<Sidebar.Tab tab={CANVAS_SEARCH_TAB}>` reaches the destructured `tab` prop of `SidebarTab`, in `components/Sidebar/SidebarTab.tsx`, line 6.
+- After that, both components pass it only to `RadixTabs` from the external `radix-ui` package, so the trail stops there.
+
+**Search-menu action:**
+1. **Hop 1:** `perform` in `actionToggleSearchMenu.ts` (line 25) returns `{ appState: { ...appState, openSidebar: { name, tab: CANVAS_SEARCH_TAB } } }`, so the return of `perform` is a destination.
+2. **Hop 2:** `ActionManager` calls `this.updater(action.perform(...))` (`actions/manager.tsx` lines 147, 176 and 212). That makes the arrow parameter `actionResult` at `manager.tsx:67` a destination.
+3. **Hop 3:** that arrow calls `updater(actionResult)`, which is the constructor argument `this.syncActionResult` from `App.tsx:893`.
+   - `syncActionResult` is `withBatchedUpdates((actionResult) => ...)`, so strictly the value first lands in the wrapper's `event` parameter at `packages/excalidraw/reactUtils.ts:15`.
+   - It only reaches `actionResult` at `App.tsx:3134` after going through the external `unstable_batchedUpdates`, which would make it hop 4.
+   - Which of the two counts as hop 3 is a judgement call, so I listed both. The `App.tsx:3134` line is the one most likely to be a false positive.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/Sidebar/SidebarTabTrigger.tsx:7 tab param
+packages/excalidraw/components/Sidebar/SidebarTab.tsx:6 tab param
+packages/excalidraw/actions/actionToggleSearchMenu.ts:25 perform return
+packages/excalidraw/actions/manager.tsx:67 actionResult param
+packages/excalidraw/reactUtils.ts:15 event param
+packages/excalidraw/components/App.tsx:3134 actionResult param
+```

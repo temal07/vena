@@ -1,0 +1,56 @@
+I found 26 destinations of `BAR_GAP` within 3 hops. The value starts at `packages/excalidraw/charts/charts.constants.ts:25` and is used directly in three places: five other `RADAR_*` constants, `charts.helpers.ts:358` (`v97`), and `charts.radar.ts:198`, where it is passed into `createSeriesLegend`.
+
+How the value travels:
+- **Hop 1:**
+  - The constants `RADAR_LABEL_OFFSET`, `RADAR_PADDING`, `RADAR_AXIS_LABEL_CLEARANCE`, `RADAR_LEGEND_ITEM_GAP` and `RADAR_LEGEND_TEXT_GAP`.
+  - `v97` in `createRadarAxisLabels`.
+  - Parameter `v106` of `createSeriesLegend`.
+- **Hop 2:**
+  - `v16` and `v17`, from `RADAR_PADDING`.
+  - `v94`, from the label offset and clearance.
+  - `v122`, from `v106` and `RADAR_LABEL_OFFSET`.
+  - `v123`, `v125` and `v131`, from the item gap.
+  - `v119`, from the text gap.
+  - Parameter `v65` of `getRadarDisplayText`, from `charts.radar.ts:92`.
+  - Parameter `v42` of `newTextElement`, reached through its `x`/`y` props from `charts.radar.ts:111`, `v97` and `charts.helpers.ts:492`.
+- **Hop 3:**
+  - `wrapText`'s `v51` parameter.
+  - The return of `getRadarDimensions`.
+  - `v95`, `v96` and `v128`.
+  - `newElement`'s `v24` parameter.
+  - Inside `newTextElement`, `v51`.
+  - The destructured `x`/`y` parameters of `_newElementBase` (`v2`, `v3`).
+
+Two judgement calls:
+- **Left out:** the anonymous `.map` callback that returns `{ width: v119 }`. It has no name to cite, and `v113` only gets that value through `Array.map`, a built-in.
+- **Included:** the destructured `x: v2` and `y: v3` of `_newElementBase`, counted as parameters.
+
+```
+FINAL ANSWER
+packages/excalidraw/charts/charts.constants.ts:30 RADAR_LABEL_OFFSET variable
+packages/excalidraw/charts/charts.constants.ts:31 RADAR_PADDING variable
+packages/excalidraw/charts/charts.constants.ts:35 RADAR_AXIS_LABEL_CLEARANCE variable
+packages/excalidraw/charts/charts.constants.ts:37 RADAR_LEGEND_ITEM_GAP variable
+packages/excalidraw/charts/charts.constants.ts:38 RADAR_LEGEND_TEXT_GAP variable
+packages/excalidraw/charts/charts.helpers.ts:358 yNudge variable
+packages/excalidraw/charts/charts.helpers.ts:393 fallbackLegendY param
+packages/excalidraw/charts/charts.helpers.ts:153 chartWidth variable
+packages/excalidraw/charts/charts.helpers.ts:154 chartHeight variable
+packages/excalidraw/charts/charts.helpers.ts:152 getRadarDimensions return
+packages/excalidraw/charts/charts.helpers.ts:353 radialOffset variable
+packages/excalidraw/charts/charts.helpers.ts:355 anchorX variable
+packages/excalidraw/charts/charts.helpers.ts:356 anchorY variable
+packages/excalidraw/charts/charts.helpers.ts:433 legendY variable
+packages/excalidraw/charts/charts.helpers.ts:438 pillPaddingX variable
+packages/excalidraw/charts/charts.helpers.ts:440 totalLegendWidth variable
+packages/excalidraw/charts/charts.helpers.ts:443 pillWidth variable
+packages/excalidraw/charts/charts.helpers.ts:465 cursorX variable
+packages/excalidraw/charts/charts.helpers.ts:419 itemWidth variable
+packages/excalidraw/charts/charts.helpers.ts:272 maxWidth param
+packages/element/src/textWrapping.ts:401 maxWidth param
+packages/element/src/newElement.ts:338 opts param
+packages/element/src/newElement.ts:370 textElementProps variable
+packages/element/src/newElement.ts:92 x param
+packages/element/src/newElement.ts:93 y param
+packages/element/src/newElement.ts:177 opts param
+```

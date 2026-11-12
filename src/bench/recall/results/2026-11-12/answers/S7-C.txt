@@ -1,0 +1,12 @@
+I found one real destination: the `isClosed` parameter of `getFreedrawShape`. Nothing else holds the returned value.
+
+`shouldTestInside` is called in four places outside tests:
+1. `packages/element/src/collision.ts:211`: `const hitElement = (overrideShouldTestInside ? true : shouldTestInside(element)) ? isPointInElement(...) || isPointOnElementOutline(...) : isPointOnElementOutline(...)`. The result only decides which branch runs. `hitElement` gets the result of `isPointInElement` or `isPointOnElementOutline`, not the value from `shouldTestInside`. vena-trace lists `hitElement` (line 210) as a hop, and from there `result` (219), `cachedHit` (121) and the return of `hitElementItself` (137). I left all four out because none of them stores the value.
+2. `packages/element/src/shape.ts:1187`: `return shouldTestInside(element) ? getClosedCurveShape(...) : getCurveShape(...)`. Again it is only the ternary condition, so the enclosing function returns a shape, not this value. No destination.
+3. `packages/element/src/shape.ts:1211`: `getFreedrawShape(element, pointFrom(cx, cy), shouldTestInside(element))`. The value goes into the `isClosed` parameter at `packages/utils/src/shape.ts:270`. That is hop 1. Inside `getFreedrawShape`, `isClosed` is only used as a ternary condition, so it goes no further. vena-trace also lists the return of `getFreedrawShape` (line 267); I left it out because the function returns a shape object, not `isClosed`.
+4. `packages/excalidraw/eraser/index.ts:228`: used inside an `if (... && ...)` condition. No destination.
+
+```
+FINAL ANSWER
+packages/utils/src/shape.ts:270 isClosed param
+```

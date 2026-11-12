@@ -1,0 +1,25 @@
+I found three destinations of the value `getColorTargetElement` returns. The function has five call sites outside tests, and only two of them pass the returned element on whole.
+
+**What the value reaches**
+- **`packages/excalidraw/actions/colorTargets.ts:120`, variable `editing`** (hop 1). It comes from `const editing = editingText && getColorTargetElement(editingText, property, elementsMap)` inside `resolveColorTarget`.
+- **`packages/excalidraw/actions/colorTargets.ts:109`, param `element` of `supports`** (hop 2). It comes from `supports(editing)`. Inside `supports`, only `element.type` is read and passed on.
+- **`packages/excalidraw/actions/actionProperties.tsx:499`, variable `editingTarget`** (hop 1). It is set in the background-color action's `perform`. After that it is only compared (`editingTarget !== editingText`, `el.id === editingTarget.id`), so it goes no further.
+
+**Call sites where the value goes nowhere**
+- `actionProperties.tsx:487`: the result is only compared with `=== el` in a ternary's condition.
+- `shapeActionPredicates.ts:75`: only the field `.type` is read, and passed to `hasBackground`.
+- `actionProperties.tsx:546`: only the field `.backgroundColor` is read, and it becomes the return value of an arrow callback passed to `getFormValue`.
+
+**Two choices that change the list**
+- **Reading a field from the result:** I didn't follow it, because `.type` or `.backgroundColor` is a different value from the element. If you count these, add:
+  - from `shapeActionPredicates.ts:75`: the `type` parameter of `hasBackground` (`packages/element/src/comparisons.ts:3`).
+  - from `supports`: `type` of `hasBackground` and `type` of `hasStrokeColor` (`comparisons.ts:3` and `:19`).
+  - from `actionProperties.tsx:546`: the return of the callback at line 545, `ret` (`actionProperties.tsx:244`) and the return of `getFormValue` (`actionProperties.tsx:230`). Through `reduceToCommonValue` it also reaches `value` (`packages/common/src/utils.ts:1201`) and `commonValue` (`utils.ts:1198`).
+- **`targets.push(editing)` in `resolveColorTarget`:** this is a call to the built-in array `push`, not a function in the repo, so it isn't one of the five hop kinds. I left `targets` out.
+
+```
+FINAL ANSWER
+packages/excalidraw/actions/colorTargets.ts:120 editing variable
+packages/excalidraw/actions/colorTargets.ts:109 element param
+packages/excalidraw/actions/actionProperties.tsx:499 editingTarget variable
+```

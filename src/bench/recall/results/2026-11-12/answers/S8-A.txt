@@ -1,0 +1,81 @@
+I traced every use of `cloneJSON` outside test files. Seven calls use the result, at nine call sites, with up to 3 hops from each.
+
+**Collab.tsx:337** reassigns the `syncableElements` param (h1). It goes to `saveToFirebase`'s `elements` (h2). From there it reaches `isSavedToFirebase.elements`, `createFirebaseSceneDocument.elements` and `reconcileElements.localElements` (h3).
+
+**transform.ts:687** goes into the variable `elements` (h1). Its only use is `for (const element of elements)`. That loop variable is one item of the array, not the cloned value itself, so I stopped here.
+
+**ImageExportDialog.tsx:413-414** builds an object inside the unnamed `useState` initializer. It is destructured into `appStateSnapshot` and `elementsSnapshot` at line 411 (h2). These are passed as JSX props to `ImageExportModal`'s props (h3). I left out the unnamed initializer's return and the object-literal keys.
+
+**DragInput.tsx** has three calls:
+- **Line 265** sets the variable `originalAppState` (h1).
+  - h2: it is passed to the `dragInputCallback` / `dragFinishedCallback` implementations that destructure `originalAppState`:
+    - Dimension.tsx:53 and :291
+    - MultiDimension.tsx:196 and :442
+    - MultiPosition.tsx:139
+    - Position.tsx:39
+  - h3: from those it reaches the `appState` param of `getElementsInResizingFrame` and of `getAtomicUnits`.
+- **Lines 107 and 392** write the field `stateRef.current.originalAppState`, declared at line 100 (h1).
+  - h2: from the field it reaches `handleInputValue`'s param `appState`.
+  - h3: it is passed on as `originalAppState: appState` into the callback params above.
+
+**library.ts:117** is the return of `cloneLibraryItems` (h1).
+- h2: its result lands in the fields `prevLibraryItems` (line 202) and `currLibraryItems` (line 377 write, declared at 199), and in the variable `nextLibraryItems` (233).
+- h3 from `nextLibraryItems`:
+  - the `onLibraryChange` prop param
+  - `createLibraryUpdate.nextLibraryItems`
+  - `Emitter.trigger`'s `payload`
+- h3 from the fields:
+  - the variable `prevLibraryItems` at 230
+  - `cloneLibraryItems.libraryItems`
+  - `getLatestLibrary`'s variable `libraryItems` at 271
+  - `mergeLibraryItems.localItems`
+
+**data/index.ts:95** is the return of `prepareElementsForExport` (h1). The value is destructured into `exportedElements` in ImageExportDialog.tsx:108, resave.ts:36 and actionClipboard.tsx:142 and :215 (h2). It then reaches `exportCanvas.elements` and `exportScene.opts` (h3).
+
+Three judgement calls where I left things out:
+- **For-of loop:** I did not follow the loop in transform.ts. If loop variables count as hops, transform.ts:696 `element` and the `new*Element` params it spreads into would be added.
+- **Promise `resolve(...)`:** I did not count it as a function return, so the returns of `getLatestLibrary` and `setLibrary` are left out.
+- **Callbacks that don't name the field:** `dragInputCallback` implementations that never destructure `originalAppState` are not listed.
+
+```
+FINAL ANSWER
+excalidraw-app/collab/Collab.tsx:335 syncableElements param
+excalidraw-app/data/firebase.ts:192 elements param
+excalidraw-app/data/firebase.ts:132 elements param
+excalidraw-app/data/firebase.ts:177 elements param
+packages/excalidraw/data/reconcile.ts:74 localElements param
+packages/element/src/transform.ts:687 elements variable
+packages/excalidraw/components/ImageExportDialog.tsx:411 appStateSnapshot variable
+packages/excalidraw/components/ImageExportDialog.tsx:411 elementsSnapshot variable
+packages/excalidraw/components/ImageExportDialog.tsx:66 appStateSnapshot param
+packages/excalidraw/components/ImageExportDialog.tsx:67 elementsSnapshot param
+packages/excalidraw/components/Stats/DragInput.tsx:265 originalAppState variable
+packages/excalidraw/components/Stats/DragInput.tsx:100 originalAppState field
+packages/excalidraw/components/Stats/DragInput.tsx:123 appState param
+packages/excalidraw/components/Stats/Dimension.tsx:53 originalAppState param
+packages/excalidraw/components/Stats/Dimension.tsx:291 originalAppState param
+packages/excalidraw/components/Stats/MultiDimension.tsx:196 originalAppState param
+packages/excalidraw/components/Stats/MultiDimension.tsx:442 originalAppState param
+packages/excalidraw/components/Stats/MultiPosition.tsx:139 originalAppState param
+packages/excalidraw/components/Stats/Position.tsx:39 originalAppState param
+packages/element/src/frame.ts:315 appState param
+packages/excalidraw/components/Stats/utils.ts:260 appState param
+packages/excalidraw/data/library.ts:116 cloneLibraryItems return
+packages/excalidraw/data/library.ts:202 prevLibraryItems field
+packages/excalidraw/data/library.ts:199 currLibraryItems field
+packages/excalidraw/data/library.ts:233 nextLibraryItems variable
+packages/excalidraw/data/library.ts:230 prevLibraryItems variable
+packages/excalidraw/data/library.ts:167 nextLibraryItems param
+packages/excalidraw/types.ts:1041 libraryItems param
+packages/common/src/emitter.ts:41 payload param
+packages/excalidraw/data/library.ts:116 libraryItems param
+packages/excalidraw/data/library.ts:271 libraryItems variable
+packages/excalidraw/data/library.ts:146 localItems param
+packages/excalidraw/data/index.ts:49 prepareElementsForExport return
+packages/excalidraw/components/ImageExportDialog.tsx:108 exportedElements variable
+packages/excalidraw/data/resave.ts:36 exportedElements variable
+packages/excalidraw/actions/actionClipboard.tsx:142 exportedElements variable
+packages/excalidraw/actions/actionClipboard.tsx:215 exportedElements variable
+packages/excalidraw/data/index.ts:101 elements param
+packages/excalidraw/scene/export.ts:1366 opts param
+```

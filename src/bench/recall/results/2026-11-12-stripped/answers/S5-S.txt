@@ -1,0 +1,34 @@
+I found 10 destinations within 3 hops. Two cases were judgement calls, and I left both out.
+
+How I traced it: I searched the whole repo for the name. Outside its declaration, `bucketFillIcon` is used in Toolbar.tsx, MobileToolbar.tsx, Tools.tsx, CommandPalette.tsx and PasteChartDialog.tsx. Nothing re-exports it.
+
+**Destinations by path:**
+- **Toolbar.tsx:115** — The value is a child of `<DropdownMenu.Trigger>`, so it lands in `MenuTrigger`'s `children: v2` (DropdownMenuTrigger.tsx:9). From there it goes to Radix, which is outside the repo.
+- **Toolbar.tsx:176 and MobileToolbar.tsx:340** — `icon={bucketFillIcon}` on `DropdownMenu.Item` lands in `DropdownMenuItem`'s `icon: v2` (DropdownMenuItem.tsx:31). That passes it to `MenuItemContent`'s `icon: v2` (DropdownMenuItemContent.tsx:9). After that it is only rendered inside a plain `<div>`.
+- **MobileToolbar.tsx:150** — A ternary puts it in `v34` (line 136). `v34` then becomes the children of `DropdownMenu.Trigger`, which is `v2` at DropdownMenuTrigger.tsx:9 again.
+- **Tools.tsx:153** — It is in the object literal passed to `defineTools`:
+  1. The parameter `v1` (Tools.tsx:60).
+  2. The return of `defineTools` (Tools.tsx:60).
+  3. `TOOLS` (Tools.tsx:69). That is the third hop, so I stopped there.
+- **CommandPalette.tsx:467/485/508** — It sits in elements of the array `v61` (line 424):
+  1. `v61`.
+  2. Two hop-2 destinations, since `v61` is spread into `[...v40, ...v61, ...].map(...)`: the map callback's parameter `v79` (line 610) and the result `v78` (line 607).
+- **PasteChartDialog.tsx:250** — It is only the child of a plain `<div>`, so it has no destination.
+
+**Left out:**
+- **`useState`/`useAtom` setters:** `v25(v78)` and `v23(...)` hand the value to setters provided by the libraries, not functions in the repo. I did not count the state variable `v24` (CommandPalette.tsx:210) as a destination.
+- **The map callback's return:** at hop 3 it is an unnamed arrow function's return, so I did not list it.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx:9 children param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx:31 icon param
+packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx:9 icon param
+packages/excalidraw/components/MobileToolbar.tsx:136 extraIcon variable
+packages/excalidraw/components/Tools.tsx:60 tools param
+packages/excalidraw/components/Tools.tsx:60 defineTools return
+packages/excalidraw/components/Tools.tsx:69 TOOLS variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:424 additionalCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:607 allCommands variable
+packages/excalidraw/components/CommandPalette/CommandPalette.tsx:610 command param
+```

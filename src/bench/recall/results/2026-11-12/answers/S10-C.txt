@@ -1,0 +1,22 @@
+I found 6 destinations within 3 hops. They match the vena-trace output exactly; I checked each call site by hand.
+
+`getColorTargetElement` is defined in `packages/element/src/stickyNote.ts:96`. It is called in 5 places:
+
+- **`packages/excalidraw/components/shapeActionPredicates.ts:75`**: inside `canChangeBackgroundColor`, the result's `.type` is passed to `hasBackground`. That makes the `type` parameter of `hasBackground` (`packages/element/src/comparisons.ts:3`) hop 1.
+- **`packages/excalidraw/actions/colorTargets.ts:121`**: inside `resolveColorTarget`, `const editing = editingText && getColorTargetElement(...)` makes `editing` (declared at line 120) hop 1.
+  - Hop 2 is `supports(editing)`, which reaches the `element` parameter of the `supports` arrow at line 109.
+  - Hop 3 is `element.type` inside `supports`, which goes to the `type` parameter of `hasStrokeColor` (`comparisons.ts:19`) and of `hasBackground` (`comparisons.ts:3`).
+- **`packages/excalidraw/actions/actionProperties.tsx:499–501`**: `const editingTarget = editingText && getColorTargetElement(...)` makes `editingTarget` hop 1. After that it is only compared (`!== editingText`, `.id ===`), so it goes no further.
+- **`actionProperties.tsx:487`**: the result is only compared (`=== el`) and never stored, so there is no destination.
+- **`actionProperties.tsx:546`**: the result's `.backgroundColor` is returned from an unnamed arrow passed to `getFormValue`. I left it out because the returning function has no name. It is the one judgement call here: if unnamed callbacks count, this adds a return destination for that arrow.
+
+I also left out `targets.push(editing)` in `colorTargets.ts`, because pushing into an array is not one of the hop kinds. The listed `type` destinations follow the element's `.type` property, the same way vena-trace treats property reads.
+
+```
+FINAL ANSWER
+packages/excalidraw/actions/colorTargets.ts:120 editing variable
+packages/excalidraw/actions/colorTargets.ts:109 element param
+packages/element/src/comparisons.ts:3 type param
+packages/element/src/comparisons.ts:19 type param
+packages/excalidraw/actions/actionProperties.tsx:499 editingTarget variable
+```

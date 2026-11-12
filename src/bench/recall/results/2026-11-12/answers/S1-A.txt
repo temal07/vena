@@ -1,0 +1,59 @@
+I found 26 destinations of `BAR_GAP` within 3 hops. Two calls are judgement calls:
+- **Left out:** the anonymous `series.map` callback in `createSeriesLegend` (`charts.helpers.ts:405`) returns `{ width: itemWidth }`. That return is technically a hop-3 return, but the callback has no name to cite.
+- **Included:** `_newElementBase`'s destructured params `x` and `y` (`newElement.ts:92/93`), since `newTextElement` passes its `opts` straight through.
+
+`BAR_GAP` is only used in three files: `charts.constants.ts`, `charts.helpers.ts` and `charts.radar.ts`. There are no re-exports.
+
+**Hop 1**
+- In `charts.constants.ts`, five constants are built from it: `RADAR_LABEL_OFFSET` (30), `RADAR_PADDING` (31), `RADAR_AXIS_LABEL_CLEARANCE` (35), `RADAR_LEGEND_ITEM_GAP` (37) and `RADAR_LEGEND_TEXT_GAP` (38).
+- `yNudge` in `createRadarAxisLabels` (`charts.helpers.ts:358`).
+- The `fallbackLegendY` param of `createSeriesLegend` (`charts.helpers.ts:393`), through `y + BAR_GAP * 5` at `charts.radar.ts:198`.
+
+**Hop 2**
+- `RADAR_PADDING` → `chartWidth` and `chartHeight` in `getRadarDimensions` (153, 154).
+- `RADAR_LABEL_OFFSET` and `RADAR_AXIS_LABEL_CLEARANCE` → `radialOffset` (353).
+- `RADAR_LABEL_OFFSET` and `fallbackLegendY` → `legendY` (433).
+- `RADAR_LABEL_OFFSET` → the `maxWidth` param of `getRadarDisplayText` (272), from `charts.radar.ts:92`.
+- `RADAR_LABEL_OFFSET` → the `opts` param of `newTextElement` (`packages/element/src/newElement.ts:338`), from `charts.radar.ts:111`.
+- `yNudge` and `RADAR_LEGEND_TEXT_GAP` → that same `opts` param.
+- `RADAR_LEGEND_ITEM_GAP` → `pillPaddingX` (438), `totalLegendWidth` (440) and `cursorX` (465, via `+=` at 503).
+- `RADAR_LEGEND_TEXT_GAP` → `itemWidth` (419).
+
+**Hop 3**
+- The return of `getRadarDimensions` (152).
+- `anchorX` and `anchorY` (355, 356).
+- `pillWidth` (443).
+- `cursorX` again, through `totalLegendWidth`; it is already listed.
+- From `legendY` and `cursorX`: the `opts` param of `newElement` (`newElement.ts:177`).
+- From `newTextElement`'s `opts`: `textElementProps` (370) and `_newElementBase`'s `x`/`y` (92/93).
+- From `getRadarDisplayText`'s `maxWidth`: `wrapText`'s `maxWidth` param (`packages/element/src/textWrapping.ts:401`).
+
+`title` (`charts.radar.ts:104`) and the outputs of the label `.map` would be hop 4 or later, so they are not listed.
+
+FINAL ANSWER
+packages/excalidraw/charts/charts.constants.ts:30 RADAR_LABEL_OFFSET variable
+packages/excalidraw/charts/charts.constants.ts:31 RADAR_PADDING variable
+packages/excalidraw/charts/charts.constants.ts:35 RADAR_AXIS_LABEL_CLEARANCE variable
+packages/excalidraw/charts/charts.constants.ts:37 RADAR_LEGEND_ITEM_GAP variable
+packages/excalidraw/charts/charts.constants.ts:38 RADAR_LEGEND_TEXT_GAP variable
+packages/excalidraw/charts/charts.helpers.ts:358 yNudge variable
+packages/excalidraw/charts/charts.helpers.ts:393 fallbackLegendY param
+packages/excalidraw/charts/charts.helpers.ts:153 chartWidth variable
+packages/excalidraw/charts/charts.helpers.ts:154 chartHeight variable
+packages/excalidraw/charts/charts.helpers.ts:152 getRadarDimensions return
+packages/excalidraw/charts/charts.helpers.ts:353 radialOffset variable
+packages/excalidraw/charts/charts.helpers.ts:355 anchorX variable
+packages/excalidraw/charts/charts.helpers.ts:356 anchorY variable
+packages/excalidraw/charts/charts.helpers.ts:433 legendY variable
+packages/excalidraw/charts/charts.helpers.ts:272 maxWidth param
+packages/excalidraw/charts/charts.helpers.ts:438 pillPaddingX variable
+packages/excalidraw/charts/charts.helpers.ts:440 totalLegendWidth variable
+packages/excalidraw/charts/charts.helpers.ts:443 pillWidth variable
+packages/excalidraw/charts/charts.helpers.ts:465 cursorX variable
+packages/excalidraw/charts/charts.helpers.ts:419 itemWidth variable
+packages/element/src/newElement.ts:338 opts param
+packages/element/src/newElement.ts:177 opts param
+packages/element/src/newElement.ts:370 textElementProps variable
+packages/element/src/newElement.ts:92 x param
+packages/element/src/newElement.ts:93 y param
+packages/element/src/textWrapping.ts:401 maxWidth param

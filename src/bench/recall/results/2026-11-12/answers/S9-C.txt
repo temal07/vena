@@ -1,0 +1,20 @@
+I found no destinations. None of the values `isExcalidrawElement` returns ever lands in a variable, parameter, field or function return.
+
+I searched the repo for every use of the name, leaving out test files. There are four uses outside its declaration at `packages/element/src/typeChecks.ts:255`:
+
+1. **`packages/element/src/bounds.ts:1557`**: `const selectionBounds = isExcalidrawElement(bounds) ? getElementBounds(bounds, elementsMap) : bounds;`. The boolean is only the ternary's test. `selectionBounds` gets `getElementBounds(...)` or `bounds`, never the boolean, so this is control flow, not data flow.
+2. **`packages/excalidraw/actions/actionTextAutoResize.ts:39`**: `const targetTextElement = isExcalidrawElement(targetElement) && isTextElement(targetElement) ? targetElement : selectedElements[0]`. The whole `&&` expression is the test of a ternary. `targetTextElement` gets an element, never the boolean.
+3. **`packages/excalidraw/components/App.viewport.ts:141`**: an `if (... && !isExcalidrawElement(target))` test. The result is not stored anywhere.
+4. **`packages/excalidraw/actions/actionStyles.ts:93`**: `if (!isExcalidrawElement(pastedElement))`. Same as above, an `if` test only.
+5. **`packages/excalidraw/actions/actionStyles.ts:105`**: `(elementsCopied as unknown[]).filter(isExcalidrawElement)`. Here the function is passed as a callback rather than called directly. Its booleans go only to the built-in `Array.prototype.filter`, and the filtered array passed to `arrayToMap` holds elements, not those booleans.
+
+vena-trace did list some candidates, and I left them all out:
+- `targetTextElement` (`actionTextAutoResize.ts:38`) and `selectionBounds` (`bounds.ts:1557`): the graph treats a ternary's test as if its value flowed into the result.
+- Everything traced on from `selectionBounds`: `selectionX1`, `selectionY1`, `selectionX2` and `selectionY2` at `bounds.ts:1560`; the `pointFrom` params at `math/src/point.ts:36-37`; `outerBounds` at `bounds.ts:1519`; `bounds1` at `bounds.ts:1506`; `minX1`, `minY1`, `maxX1` and `maxY1` at `bounds.ts:1513`; and `bounds` at `bounds.ts:1490` and `1498`. These carry the computed bounds, not the boolean.
+- The `items` param, the `arrayToMap` return and `copiedElementsMap` (`utils.ts:586/587`, `actionStyles.ts:104`): these came from the `filter` call, which vena itself marked `~inferred`.
+
+This depends on one reading of the hop rules, and it leaves the answer empty. If your scoring counts a ternary's test as "part of the expression", the hop-1 entries would be `packages/excalidraw/actions/actionTextAutoResize.ts:38 targetTextElement variable` and `packages/element/src/bounds.ts:1557 selectionBounds variable`. The `bounds.ts` hops traced on from `selectionBounds` would then follow.
+
+```
+FINAL ANSWER
+```

@@ -1,0 +1,10 @@
+I found no destinations. The function's return value never lands in a variable, parameter, field or function return within the repo.
+
+`isExcalidrawElement` is defined at `packages/element/src/typeChecks.ts:255`. Excluding test files, it is used in exactly 5 places, and each one only tests the result:
+- `packages/element/src/bounds.ts:1557`: the result is the condition of the ternary in `const selectionBounds = isExcalidrawElement(bounds) ? getElementBounds(...) : bounds`. `selectionBounds` gets one of the two branch values, never the boolean, so it is not a destination.
+- `packages/excalidraw/components/App.viewport.ts:141`: the result is part of an `if` condition.
+- `packages/excalidraw/actions/actionStyles.ts:93`: the result is part of an `if (!isExcalidrawElement(...))` check.
+- `packages/excalidraw/actions/actionStyles.ts:105`: the function is passed as the callback to the built-in `Array.prototype.filter`. Its result goes into filter's code, which is not in the repo; `filter` returns elements, not the boolean.
+- `packages/excalidraw/actions/actionTextAutoResize.ts:39`: the result is the `&&` condition of a ternary. `targetTextElement` gets `targetElement` or `selectedElements[0]`, never the boolean.
+
+FINAL ANSWER

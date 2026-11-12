@@ -1,0 +1,3340 @@
+{
+  "S1": {
+    "name": "BAR_GAP",
+    "candidates": [
+      {
+        "cid": "S1.1",
+        "file": "packages/excalidraw/charts/charts.constants.ts",
+        "line": 30,
+        "name": "RADAR_LABEL_OFFSET",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: BAR_GAP * 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.2",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 353,
+        "name": "radialOffset",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2 via RADAR_LABEL_OFFSET / RADAR_AXIS_LABEL_CLEARANCE",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.3",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 355,
+        "name": "anchorX",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3 via radialOffset",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.4",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 356,
+        "name": "anchorY",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3 via radialOffset",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.5",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 433,
+        "name": "legendY",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: Math.max(..., ... + RADAR_LABEL_OFFSET)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.6",
+        "file": "packages/element/src/newElement.ts",
+        "line": 338,
+        "name": "opts",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: y: axisLabelTopY - RADAR_LABEL_OFFSET ... into newTextElement opts (charts.radar.ts:111)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.7",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 272,
+        "name": "maxWidth",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: chartWidth + RADAR_LABEL_OFFSET * 2 (charts.radar.ts:92)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.8",
+        "file": "packages/element/src/textWrapping.ts",
+        "line": 401,
+        "name": "maxWidth",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getRadarDisplayText passes maxWidth to wrapText",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.9",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 269,
+        "name": "getRadarDisplayText",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "wrapText's result is wrapped text; maxWidth only influences it, never lands in the return"
+      },
+      {
+        "cid": "S1.10",
+        "file": "packages/element/src/newElement.ts",
+        "line": 353,
+        "name": "fontFamily",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reads opts.fontFamily, a different field of opts from the one carrying BAR_GAP"
+      },
+      {
+        "cid": "S1.11",
+        "file": "packages/element/src/newElement.ts",
+        "line": 354,
+        "name": "fontSize",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reads opts.fontSize, a different field of opts"
+      },
+      {
+        "cid": "S1.12",
+        "file": "packages/element/src/newElement.ts",
+        "line": 355,
+        "name": "lineHeight",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reads opts.lineHeight, a different field of opts"
+      },
+      {
+        "cid": "S1.13",
+        "file": "packages/element/src/textMeasurements.ts",
+        "line": 72,
+        "name": "text",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "normalizeText(opts.text): a different field of opts"
+      },
+      {
+        "cid": "S1.14",
+        "file": "packages/element/src/textMeasurements.ts",
+        "line": 20,
+        "name": "env",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "opts.renderEnvironment: a different field of opts"
+      },
+      {
+        "cid": "S1.15",
+        "file": "packages/element/src/newElement.ts",
+        "line": 363,
+        "name": "textAlign",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reads opts.textAlign, a different field of opts"
+      },
+      {
+        "cid": "S1.16",
+        "file": "packages/element/src/newElement.ts",
+        "line": 364,
+        "name": "verticalAlign",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reads opts.verticalAlign, a different field of opts"
+      },
+      {
+        "cid": "S1.17",
+        "file": "packages/element/src/newElement.ts",
+        "line": 92,
+        "name": "x",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: newTextElement passes opts to _newElementBase, destructured x",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.18",
+        "file": "packages/element/src/newElement.ts",
+        "line": 370,
+        "name": "textElementProps",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: x: opts.x - offsets.x",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.19",
+        "file": "packages/excalidraw/charts/charts.constants.ts",
+        "line": 31,
+        "name": "RADAR_PADDING",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.20",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 153,
+        "name": "chartWidth",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.21",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 152,
+        "name": "getRadarDimensions",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: return { chartWidth, chartHeight }",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.22",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 154,
+        "name": "chartHeight",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.23",
+        "file": "packages/excalidraw/charts/charts.constants.ts",
+        "line": 35,
+        "name": "RADAR_AXIS_LABEL_CLEARANCE",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.24",
+        "file": "packages/excalidraw/charts/charts.constants.ts",
+        "line": 37,
+        "name": "RADAR_LEGEND_ITEM_GAP",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.25",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 438,
+        "name": "pillPaddingX",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.26",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 443,
+        "name": "pillWidth",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.27",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 440,
+        "name": "totalLegendWidth",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.28",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 465,
+        "name": "cursorX",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3 via totalLegendWidth",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.29",
+        "file": "packages/excalidraw/charts/charts.constants.ts",
+        "line": 38,
+        "name": "RADAR_LEGEND_TEXT_GAP",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.30",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 419,
+        "name": "itemWidth",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.31",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 358,
+        "name": "yNudge",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: BAR_GAP / 3 in a ternary branch",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.32",
+        "file": "packages/excalidraw/charts/charts.helpers.ts",
+        "line": 393,
+        "name": "fallbackLegendY",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: y + BAR_GAP * 5 (charts.radar.ts:198)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.33",
+        "file": "packages/element/src/newElement.ts",
+        "line": 177,
+        "name": "opts",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: legendY (hop 2) into newElement({ y: legendY - ... })",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S1.34",
+        "file": "packages/element/src/newElement.ts",
+        "line": 93,
+        "name": "y",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: newTextElement opts -> _newElementBase destructured y",
+        "mechanism": "plain"
+      }
+    ]
+  },
+  "S2": {
+    "name": "roundArrowIcon",
+    "candidates": [
+      {
+        "cid": "S2.1",
+        "file": "packages/excalidraw/components/ConvertElementTypePopup.tsx",
+        "line": 301,
+        "name": "SHAPES",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: [\"curvedArrow\", roundArrowIcon] in SHAPES",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S2.2",
+        "file": "packages/excalidraw/components/ConvertElementTypePopup.tsx",
+        "line": 196,
+        "name": "Panel",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "real only through the SHAPES.map callback: icon param (2), the callback's return (3), Panel's JSX (4)"
+      },
+      {
+        "cid": "S2.3",
+        "file": "packages/excalidraw/components/ConvertElementTypePopup.tsx",
+        "line": 333,
+        "name": "icon",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: SHAPES.map(([type, icon]) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S2.4",
+        "file": "packages/excalidraw/components/IconButton.tsx",
+        "line": 69,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: <IconButton icon={icon}> inside the map callback",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S2.5",
+        "file": "packages/excalidraw/components/CursorHint.tsx",
+        "line": 41,
+        "name": "getArrowTypeIcon",
+        "kind": "return",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: a ternary branch value, returned",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S2.6",
+        "file": "packages/excalidraw/components/CursorHint.tsx",
+        "line": 65,
+        "name": "content",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: this.show(getArrowTypeIcon(...)) — show is a class-property arrow",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S2.7",
+        "file": "packages/excalidraw/components/App.tsx",
+        "line": 1096,
+        "name": "args",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: this.app.updateEditorAtom(cursorHintAtom, { content, nonce }) into ...args",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S2.8",
+        "file": "packages/excalidraw/components/RadioSelection.tsx",
+        "line": 8,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <RadioSelection options={[..., { icon: roundArrowIcon }]}>",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S2.9",
+        "file": "packages/excalidraw/components/RadioSelection.tsx",
+        "line": 32,
+        "name": "option",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: props.options.map((option) => ...)",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S2.10",
+        "file": "packages/excalidraw/components/RadioButton.tsx",
+        "line": 18,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: <RadioButton icon={option.icon}>",
+        "mechanism": "jsx"
+      }
+    ]
+  },
+  "S3": {
+    "name": "CANVAS_SEARCH_TAB",
+    "candidates": [
+      {
+        "cid": "S3.1",
+        "file": "packages/excalidraw/components/DefaultSidebar.tsx",
+        "line": 77,
+        "name": "isForceDocked",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "condition rule: `openSidebar?.tab === CANVAS_SEARCH_TAB` stores a boolean, never the value"
+      },
+      {
+        "cid": "S3.2",
+        "file": "packages/excalidraw/components/Sidebar/SidebarTabTrigger.tsx",
+        "line": 7,
+        "name": "tab",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <Sidebar.TabTrigger tab={CANVAS_SEARCH_TAB}>",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S3.3",
+        "file": "packages/excalidraw/components/Sidebar/SidebarTab.tsx",
+        "line": 6,
+        "name": "tab",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <Sidebar.Tab tab={CANVAS_SEARCH_TAB}>",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S3.4",
+        "file": "packages/excalidraw/actions/actionToggleSearchMenu.ts",
+        "line": 25,
+        "name": "perform",
+        "kind": "return",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: perform returns { appState: { openSidebar: { tab: CANVAS_SEARCH_TAB } } }",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S3.5",
+        "file": "packages/excalidraw/actions/manager.tsx",
+        "line": 67,
+        "name": "actionResult",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: this.updater(data[0].perform(...)) — perform reached by dynamic dispatch",
+        "mechanism": "other"
+      },
+      {
+        "cid": "S3.6",
+        "file": "packages/excalidraw/reactUtils.ts",
+        "line": 15,
+        "name": "event",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: updater is the constructor argument this.syncActionResult, a withBatchedUpdates wrapper whose event param receives it",
+        "mechanism": "other"
+      },
+      {
+        "cid": "S3.7",
+        "file": "packages/excalidraw/components/App.tsx",
+        "line": 3134,
+        "name": "actionResult",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "reaches syncActionResult's actionResult only through the external unstable_batchedUpdates — hop 4"
+      },
+      {
+        "cid": "S3.8",
+        "file": "packages/excalidraw/components/Sidebar/Sidebar.tsx",
+        "line": 171,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S3.1: isForceDocked is a boolean, never the value"
+      },
+      {
+        "cid": "S3.9",
+        "file": "packages/excalidraw/components/Sidebar/Sidebar.tsx",
+        "line": 54,
+        "name": "docked",
+        "kind": "param",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S3.1: docked is that boolean"
+      }
+    ]
+  },
+  "S4": {
+    "name": "copyIcon",
+    "candidates": [
+      {
+        "cid": "S4.1",
+        "file": "packages/excalidraw/actions/register.ts",
+        "line": 9,
+        "name": "action",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: register({ icon: copyIcon, ... })",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S4.2",
+        "file": "packages/excalidraw/actions/register.ts",
+        "line": 3,
+        "name": "actions",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: actions = actions.concat(action)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S4.3",
+        "file": "packages/excalidraw/actions/register.ts",
+        "line": 5,
+        "name": "register",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: return action",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S4.4",
+        "file": "packages/excalidraw/actions/actionElementLink.ts",
+        "line": 16,
+        "name": "actionCopyElementLink",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: actionCopyElementLink = register({...})",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S4.5",
+        "file": "packages/excalidraw/components/FilledButton.tsx",
+        "line": 43,
+        "name": "icon",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <FilledButton icon={copyIcon}> at three call sites",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S4.6",
+        "file": "packages/excalidraw/components/MagicButton.tsx",
+        "line": 7,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <ElementCanvasButton icon={copyIcon}> (App.tsx:2567)",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S4.7",
+        "file": "packages/excalidraw/components/IconButton.tsx",
+        "line": 69,
+        "name": "props",
+        "kind": "param",
+        "foundBy": [
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: icon={props.icon} into IconButton's ...props",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S4.8",
+        "file": "packages/excalidraw/actions/manager.tsx",
+        "line": 85,
+        "name": "actions",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: this.actionManager.registerAll(actions) (App.tsx:917)",
+        "mechanism": "plain"
+      }
+    ]
+  },
+  "S5": {
+    "name": "bucketFillIcon",
+    "candidates": [
+      {
+        "cid": "S5.1",
+        "file": "packages/excalidraw/components/Tools.tsx",
+        "line": 60,
+        "name": "tools",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: defineTools({ bucketfill: { icon: bucketFillIcon } })",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S5.2",
+        "file": "packages/excalidraw/components/MobileToolbar.tsx",
+        "line": 136,
+        "name": "extraIcon",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: ternary branch value",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S5.3",
+        "file": "packages/excalidraw/components/MobileToolbar.tsx",
+        "line": 49,
+        "name": "MobileToolbar",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: extraIcon is a child in the JSX MobileToolbar returns",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S5.4",
+        "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "line": 424,
+        "name": "additionalCommands",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: { icon: bucketFillIcon } in the array literal",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S5.5",
+        "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "line": 607,
+        "name": "allCommands",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: [...additionalCommands].map(c => ({ ...c, ... })) returns a copy holding it",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S5.6",
+        "file": "packages/excalidraw/components/Tools.tsx",
+        "line": 60,
+        "name": "defineTools",
+        "kind": "return",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: defineTools returns tools",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S5.7",
+        "file": "packages/excalidraw/components/Tools.tsx",
+        "line": 69,
+        "name": "TOOLS",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: TOOLS = defineTools({...})",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S5.8",
+        "file": "packages/excalidraw/components/dropdownMenu/DropdownMenuTrigger.tsx",
+        "line": 9,
+        "name": "children",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1 (Toolbar.tsx:115) / hop 2 (via extraIcon): children of DropdownMenu.Trigger",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S5.9",
+        "file": "packages/excalidraw/components/dropdownMenu/DropdownMenuItem.tsx",
+        "line": 31,
+        "name": "icon",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: <DropdownMenu.Item icon={bucketFillIcon}>",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S5.10",
+        "file": "packages/excalidraw/components/dropdownMenu/DropdownMenuItemContent.tsx",
+        "line": 9,
+        "name": "icon",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: <MenuItemContent icon={icon}>",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S5.11",
+        "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "line": 611,
+        "name": "command",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: .map((command) => ...) parameter",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S5.12",
+        "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "line": 210,
+        "name": "allCommands",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: setAllCommands(allCommands) — React state",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S5.13",
+        "file": "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "line": 625,
+        "name": "command",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: [...allCommands].find((command) => ...) parameter",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S5.14",
+        "file": "packages/excalidraw/components/Toolbar.tsx",
+        "line": 54,
+        "name": "ExtraToolsDropdown",
+        "kind": "return",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: a child of DropdownMenu.Trigger in the JSX ExtraToolsDropdown returns (Toolbar.tsx:115)",
+        "mechanism": "jsx"
+      }
+    ]
+  },
+  "S6": {
+    "name": "deconstructDiamondElement",
+    "candidates": [
+      {
+        "cid": "S6.1",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 356,
+        "name": "segments",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.2",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 356,
+        "name": "curves",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.3",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 635,
+        "name": "segments",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.4",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 635,
+        "name": "curves",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.5",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 794,
+        "name": "curves",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.6",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 792,
+        "name": "midpoints",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "midpoints are computed by bezierEquation from each curve: curve (2), c (3), its return (4)"
+      },
+      {
+        "cid": "S6.7",
+        "file": "packages/element/src/bounds.ts",
+        "line": 371,
+        "name": "sides",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.8",
+        "file": "packages/element/src/bounds.ts",
+        "line": 444,
+        "name": "sides",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.9",
+        "file": "packages/element/src/bounds.ts",
+        "line": 443,
+        "name": "getRotatedSides",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "getRotatedSides returns new points computed through pointRotateRads, past hop 3"
+      },
+      {
+        "cid": "S6.10",
+        "file": "packages/element/src/bounds.ts",
+        "line": 371,
+        "name": "corners",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.11",
+        "file": "packages/element/src/bounds.ts",
+        "line": 372,
+        "name": "cornerSegments",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "cornerSegments are computed by getSegmentsOnCurve: corner (2), curve (3), its return (4)"
+      },
+      {
+        "cid": "S6.12",
+        "file": "packages/element/src/bounds.ts",
+        "line": 309,
+        "name": "getElementLineSegments",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "getElementLineSegments returns rotatedSides + cornerSegments, both computed past hop 3"
+      },
+      {
+        "cid": "S6.13",
+        "file": "packages/element/src/binding.ts",
+        "line": 3192,
+        "name": "sides",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.14",
+        "file": "packages/element/src/binding.ts",
+        "line": 3193,
+        "name": "bottomRight",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.15",
+        "file": "packages/element/src/binding.ts",
+        "line": 3461,
+        "name": "p2",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getMidPoint(bottomLeft[1], topLeft[0]) (binding.ts:3207)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.16",
+        "file": "packages/element/src/binding.ts",
+        "line": 3461,
+        "name": "p1",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getMidPoint(bottomLeft[1], topLeft[0])",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.17",
+        "file": "packages/element/src/binding.ts",
+        "line": 3193,
+        "name": "bottomLeft",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.18",
+        "file": "packages/element/src/binding.ts",
+        "line": 3193,
+        "name": "topLeft",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.19",
+        "file": "packages/element/src/binding.ts",
+        "line": 3193,
+        "name": "topRight",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.20",
+        "file": "packages/element/src/binding.ts",
+        "line": 3192,
+        "name": "corners",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.21",
+        "file": "packages/element/src/binding.ts",
+        "line": 3201,
+        "name": "leftCorner",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.22",
+        "file": "packages/element/src/binding.ts",
+        "line": 3202,
+        "name": "midPoint",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.23",
+        "file": "packages/element/src/binding.ts",
+        "line": 3215,
+        "name": "rightCorner",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.24",
+        "file": "packages/element/src/binding.ts",
+        "line": 3216,
+        "name": "midPoint",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.25",
+        "file": "packages/element/src/binding.ts",
+        "line": 3228,
+        "name": "topCorner",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.26",
+        "file": "packages/element/src/binding.ts",
+        "line": 3229,
+        "name": "midPoint",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.27",
+        "file": "packages/element/src/binding.ts",
+        "line": 3241,
+        "name": "bottomCorner",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.28",
+        "file": "packages/element/src/binding.ts",
+        "line": 3242,
+        "name": "midPoint",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.29",
+        "file": "packages/element/src/distance.ts",
+        "line": 104,
+        "name": "sides",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.30",
+        "file": "packages/element/src/distance.ts",
+        "line": 93,
+        "name": "distanceToDiamondElement",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "a distance computed via distanceToLineSegment / curvePointDistance, past hop 3"
+      },
+      {
+        "cid": "S6.31",
+        "file": "packages/element/src/distance.ts",
+        "line": 30,
+        "name": "distanceToElement",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "follows from S6.30, further still"
+      },
+      {
+        "cid": "S6.32",
+        "file": "packages/element/src/distance.ts",
+        "line": 104,
+        "name": "curves",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.33",
+        "file": "packages/element/src/collision.ts",
+        "line": 779,
+        "name": "sides",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.34",
+        "file": "packages/element/src/collision.ts",
+        "line": 629,
+        "name": "lines",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.35",
+        "file": "packages/element/src/collision.ts",
+        "line": 779,
+        "name": "corners",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.36",
+        "file": "packages/element/src/collision.ts",
+        "line": 587,
+        "name": "curves",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "destructured from the result, an element of it, or passed on as a parameter — within 3 hops",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.37",
+        "file": "packages/element/src/bounds.ts",
+        "line": 373,
+        "name": "corner",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: corners.map((corner) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.38",
+        "file": "packages/element/src/bounds.ts",
+        "line": 448,
+        "name": "side",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: sides param (2), sides.map((side) => ...) (3)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.39",
+        "file": "packages/element/src/bounds.ts",
+        "line": 457,
+        "name": "curve",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getSegmentsOnCurve(corner, ...) from the callback",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.40",
+        "file": "packages/element/src/distance.ts",
+        "line": 106,
+        "name": "s",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: sides.map((s) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.41",
+        "file": "packages/element/src/distance.ts",
+        "line": 107,
+        "name": "a",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: curves.map((a) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.42",
+        "file": "packages/math/src/segment.ts",
+        "line": 121,
+        "name": "line",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: distanceToLineSegment(rotatedPoint, s)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.43",
+        "file": "packages/math/src/curve.ts",
+        "line": 293,
+        "name": "c",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: curvePointDistance(a, ...) from the callback",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.44",
+        "file": "packages/element/src/collision.ts",
+        "line": 636,
+        "name": "l",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: lines param (2), for (const l of lines) (3)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.45",
+        "file": "packages/element/src/collision.ts",
+        "line": 604,
+        "name": "c",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: curves param (2), for (const c of curves) (3)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S6.46",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 361,
+        "name": "segment",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: segments.forEach((segment) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.47",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 375,
+        "name": "curve",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: curves.forEach((curve) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.48",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 376,
+        "name": "start",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: const [start, ...] = curve",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.49",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 376,
+        "name": "control1",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.50",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 376,
+        "name": "control2",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.51",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 376,
+        "name": "end",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.52",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 641,
+        "name": "segment",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: segments.forEach((segment) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.53",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 655,
+        "name": "curve",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: curves.forEach((curve) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.54",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 656,
+        "name": "start",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.55",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 656,
+        "name": "control1",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.56",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 656,
+        "name": "control2",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.57",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 656,
+        "name": "end",
+        "kind": "variable",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.58",
+        "file": "packages/excalidraw/renderer/interactiveScene.ts",
+        "line": 797,
+        "name": "curve",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: curves.map((curve) => ...)",
+        "mechanism": "callback"
+      },
+      {
+        "cid": "S6.59",
+        "file": "packages/math/src/curve.ts",
+        "line": 116,
+        "name": "c",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: bezierEquation(curve, 0.5)",
+        "mechanism": "callback"
+      }
+    ]
+  },
+  "S7": {
+    "name": "shouldTestInside",
+    "candidates": [
+      {
+        "cid": "S7.1",
+        "file": "packages/element/src/collision.ts",
+        "line": 210,
+        "name": "hitElement",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "condition rule: shouldTestInside(...) is only the ternary's test; hitElement holds isPointInElement/OnOutline's result"
+      },
+      {
+        "cid": "S7.2",
+        "file": "packages/element/src/collision.ts",
+        "line": 219,
+        "name": "result",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S7.1"
+      },
+      {
+        "cid": "S7.3",
+        "file": "packages/element/src/collision.ts",
+        "line": 121,
+        "name": "cachedHit",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S7.1"
+      },
+      {
+        "cid": "S7.4",
+        "file": "packages/element/src/collision.ts",
+        "line": 137,
+        "name": "hitElementItself",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S7.1"
+      },
+      {
+        "cid": "S7.5",
+        "file": "packages/utils/src/shape.ts",
+        "line": 270,
+        "name": "isClosed",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C",
+          "A"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: getFreedrawShape(element, ..., shouldTestInside(element))",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S7.6",
+        "file": "packages/utils/src/shape.ts",
+        "line": 267,
+        "name": "getFreedrawShape",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "condition rule: isClosed only selects polygon vs polyline; the return is a shape, never the boolean"
+      }
+    ]
+  },
+  "S8": {
+    "name": "cloneJSON",
+    "candidates": [
+      {
+        "cid": "S8.1",
+        "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+        "line": 265,
+        "name": "originalAppState",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: const originalAppState = cloneJSON(appState)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.2",
+        "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+        "line": 270,
+        "name": "onPointerMove",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "onPointerMove returns nothing; originalAppState only goes into dragInputCallback's argument object"
+      },
+      {
+        "cid": "S8.3",
+        "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+        "line": 314,
+        "name": "onPointerUp",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "onPointerUp returns nothing"
+      },
+      {
+        "cid": "S8.4",
+        "file": "packages/common/src/utils.ts",
+        "line": 587,
+        "name": "items",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "arrayToMap(localElements) is within 3 hops only from cloneJSON(_local) in reconcile.test.ts; from Collab it is hop 4"
+      },
+      {
+        "cid": "S8.5",
+        "file": "packages/element/src/bounds.ts",
+        "line": 257,
+        "name": "element",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "reached only through the false S8.3 and calls in flip.test.tsx"
+      },
+      {
+        "cid": "S8.6",
+        "file": "packages/excalidraw/data/reconcile.ts",
+        "line": 74,
+        "name": "localElements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: Collab syncableElements (1) -> saveToFirebase elements (2) -> reconcileElements localElements (3)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.7",
+        "file": "packages/common/src/utils.ts",
+        "line": 586,
+        "name": "arrayToMap",
+        "kind": "return",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "as S8.4, one hop further"
+      },
+      {
+        "cid": "S8.8",
+        "file": "packages/excalidraw/data/reconcile.ts",
+        "line": 75,
+        "name": "remoteElements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "only via cloneJSON(_remote) in reconcile.test.ts"
+      },
+      {
+        "cid": "S8.9",
+        "file": "packages/element/src/transform.ts",
+        "line": 687,
+        "name": "elements",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: const elements = cloneJSON(elementsSkeleton)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.10",
+        "file": "excalidraw-app/collab/Collab.tsx",
+        "line": 335,
+        "name": "syncableElements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: syncableElements = cloneJSON(syncableElements)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.11",
+        "file": "packages/common/src/utils.ts",
+        "line": 948,
+        "name": "obj",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "flow-insensitive: the argument in syncableElements = cloneJSON(syncableElements) is the value before the clone"
+      },
+      {
+        "cid": "S8.12",
+        "file": "excalidraw-app/data/firebase.ts",
+        "line": 192,
+        "name": "elements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: saveToFirebase(..., syncableElements, ...)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.13",
+        "file": "excalidraw-app/data/firebase.ts",
+        "line": 132,
+        "name": "elements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: isSavedToFirebase(portal, elements)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.14",
+        "file": "excalidraw-app/data/firebase.ts",
+        "line": 177,
+        "name": "elements",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: createFirebaseSceneDocument(elements, roomKey)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.15",
+        "file": "packages/excalidraw/components/ImageExportDialog.tsx",
+        "line": 411,
+        "name": "appStateSnapshot",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: useState(() => ({ appStateSnapshot: cloneJSON(...) })) destructured — React state",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.16",
+        "file": "packages/excalidraw/components/ImageExportDialog.tsx",
+        "line": 411,
+        "name": "elementsSnapshot",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.15",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.17",
+        "file": "packages/excalidraw/components/ImageExportDialog.tsx",
+        "line": 66,
+        "name": "appStateSnapshot",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: JSX prop into ImageExportModal (first non-plain hop is React state)",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.18",
+        "file": "packages/excalidraw/components/ImageExportDialog.tsx",
+        "line": 67,
+        "name": "elementsSnapshot",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: as S8.17",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.19",
+        "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+        "line": 100,
+        "name": "originalAppState",
+        "kind": "field",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: stateRef.current.originalAppState = cloneJSON(appState)",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.20",
+        "file": "packages/excalidraw/components/Stats/DragInput.tsx",
+        "line": 123,
+        "name": "appState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: handleInputValue(..., stateRef.current.originalAppState)",
+        "mechanism": "object-field"
+      },
+      {
+        "cid": "S8.21",
+        "file": "packages/excalidraw/components/Stats/Dimension.tsx",
+        "line": 53,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: dragInputCallback({ originalAppState }) — dragInputCallback={handleDimensionChange} is a prop",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.22",
+        "file": "packages/excalidraw/components/Stats/Dimension.tsx",
+        "line": 291,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.21",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.23",
+        "file": "packages/excalidraw/components/Stats/MultiDimension.tsx",
+        "line": 196,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.21",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.24",
+        "file": "packages/excalidraw/components/Stats/MultiDimension.tsx",
+        "line": 442,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.21",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.25",
+        "file": "packages/excalidraw/components/Stats/MultiPosition.tsx",
+        "line": 139,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.21",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.26",
+        "file": "packages/excalidraw/components/Stats/Position.tsx",
+        "line": 39,
+        "name": "originalAppState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: as S8.21",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.27",
+        "file": "packages/element/src/frame.ts",
+        "line": 315,
+        "name": "appState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getElementsInResizingFrame(..., originalAppState)",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.28",
+        "file": "packages/excalidraw/components/Stats/utils.ts",
+        "line": 260,
+        "name": "appState",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: getAtomicUnits(..., originalAppState)",
+        "mechanism": "jsx"
+      },
+      {
+        "cid": "S8.29",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 116,
+        "name": "cloneLibraryItems",
+        "kind": "return",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: cloneLibraryItems returns cloneJSON(libraryItems)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.30",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 202,
+        "name": "prevLibraryItems",
+        "kind": "field",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: this.prevLibraryItems = cloneLibraryItems(...)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.31",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 199,
+        "name": "currLibraryItems",
+        "kind": "field",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: this.currLibraryItems = cloneLibraryItems(await libraryItems) (library.ts:377)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.32",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 233,
+        "name": "nextLibraryItems",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: const nextLibraryItems = cloneLibraryItems(...)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.33",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 230,
+        "name": "prevLibraryItems",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: const prevLibraryItems = this.prevLibraryItems",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.34",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 167,
+        "name": "nextLibraryItems",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: createLibraryUpdate(prevLibraryItems, nextLibraryItems)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.35",
+        "file": "packages/excalidraw/types.ts",
+        "line": 1041,
+        "name": "libraryItems",
+        "kind": "param",
+        "foundBy": [
+          "A"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "onLibraryChange is a host-supplied prop; types.ts holds only its type signature, and nothing in this repo implements it"
+      },
+      {
+        "cid": "S8.36",
+        "file": "packages/common/src/emitter.ts",
+        "line": 41,
+        "name": "payload",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: onLibraryUpdateEmitter.trigger(..., nextLibraryItems)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.37",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 116,
+        "name": "libraryItems",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: cloneLibraryItems(this.currLibraryItems)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.38",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 271,
+        "name": "libraryItems",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: await (this.getLastUpdateTask()",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.39",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 146,
+        "name": "localItems",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: mergeLibraryItems(this.currLibraryItems / ...) localItems",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.40",
+        "file": "packages/excalidraw/data/index.ts",
+        "line": 49,
+        "name": "prepareElementsForExport",
+        "kind": "return",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: prepareElementsForExport returns cloneJSON(...)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.41",
+        "file": "packages/excalidraw/components/ImageExportDialog.tsx",
+        "line": 108,
+        "name": "exportedElements",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.42",
+        "file": "packages/excalidraw/data/resave.ts",
+        "line": 36,
+        "name": "exportedElements",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.43",
+        "file": "packages/excalidraw/actions/actionClipboard.tsx",
+        "line": 142,
+        "name": "exportedElements",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.44",
+        "file": "packages/excalidraw/actions/actionClipboard.tsx",
+        "line": 215,
+        "name": "exportedElements",
+        "kind": "variable",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.45",
+        "file": "packages/excalidraw/data/index.ts",
+        "line": 101,
+        "name": "elements",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: exportCanvas(..., exportedElements, ...)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.46",
+        "file": "packages/excalidraw/scene/export.ts",
+        "line": 1366,
+        "name": "opts",
+        "kind": "param",
+        "foundBy": [
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: exportScene opts",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S8.47",
+        "file": "packages/excalidraw/data/library.ts",
+        "line": 268,
+        "name": "getLatestLibrary",
+        "kind": "return",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: resolve(this.currLibraryItems) — a Promise resolution, in the catch branch",
+        "mechanism": "other"
+      },
+      {
+        "cid": "S8.48",
+        "file": "packages/excalidraw/components/App.tsx",
+        "line": 10855,
+        "name": "allLibraryItems",
+        "kind": "variable",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "await getLatestLibrary() — hop 4"
+      },
+      {
+        "cid": "S8.49",
+        "file": "packages/excalidraw/components/LibraryMenuHeaderContent.tsx",
+        "line": 182,
+        "name": "libraryItems",
+        "kind": "variable",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "from getLatestLibrary — hop 4"
+      },
+      {
+        "cid": "S8.50",
+        "file": "packages/excalidraw/actions/actionAddToLibrary.ts",
+        "line": 34,
+        "name": "items",
+        "kind": "param",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "out-of-scope",
+        "sameAs": null,
+        "note": "getLatestLibrary().then((items) => ...) — hop 4"
+      },
+      {
+        "cid": "S8.51",
+        "file": "packages/excalidraw/components/App.tsx",
+        "line": 2788,
+        "name": "elements",
+        "kind": "param",
+        "foundBy": [
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: onExportImage(type, exportedElements, ...) — onExportImage is a prop",
+        "mechanism": "jsx"
+      }
+    ]
+  },
+  "S9": {
+    "name": "isExcalidrawElement",
+    "candidates": [
+      {
+        "cid": "S9.1",
+        "file": "packages/common/src/utils.ts",
+        "line": 587,
+        "name": "items",
+        "kind": "param",
+        "foundBy": [
+          "B"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": ".filter(isExcalidrawElement) passes the function itself; its booleans go into the built-in filter, which returns elements"
+      },
+      {
+        "cid": "S9.2",
+        "file": "packages/common/src/utils.ts",
+        "line": 586,
+        "name": "arrayToMap",
+        "kind": "return",
+        "foundBy": [
+          "B"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.1: arrayToMap's return holds elements, not the booleans"
+      },
+      {
+        "cid": "S9.3",
+        "file": "packages/excalidraw/actions/actionStyles.ts",
+        "line": 104,
+        "name": "copiedElementsMap",
+        "kind": "variable",
+        "foundBy": [
+          "B"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.1"
+      },
+      {
+        "cid": "S9.4",
+        "file": "packages/excalidraw/actions/actionTextAutoResize.ts",
+        "line": 38,
+        "name": "targetTextElement",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "condition rule: the && chain is a ternary's test; targetTextElement holds an element"
+      },
+      {
+        "cid": "S9.5",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1557,
+        "name": "selectionBounds",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "condition rule: the call is the ternary's test; selectionBounds holds bounds"
+      },
+      {
+        "cid": "S9.6",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1560,
+        "name": "selectionX1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.7",
+        "file": "packages/math/src/point.ts",
+        "line": 36,
+        "name": "xOrCoords",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.8",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1560,
+        "name": "selectionY1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.9",
+        "file": "packages/math/src/point.ts",
+        "line": 37,
+        "name": "y",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.10",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1560,
+        "name": "selectionX2",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.11",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1560,
+        "name": "selectionY2",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.12",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1519,
+        "name": "outerBounds",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.13",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1498,
+        "name": "bounds",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.14",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1506,
+        "name": "bounds1",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.15",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1513,
+        "name": "minX1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.16",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1513,
+        "name": "minY1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.17",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1513,
+        "name": "maxX1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.18",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1513,
+        "name": "maxY1",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      },
+      {
+        "cid": "S9.19",
+        "file": "packages/element/src/bounds.ts",
+        "line": 1490,
+        "name": "bounds",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict"
+        ],
+        "verdict": "false",
+        "sameAs": null,
+        "note": "follows from S9.5: carries the bounds, not the boolean"
+      }
+    ]
+  },
+  "S10": {
+    "name": "getColorTargetElement",
+    "candidates": [
+      {
+        "cid": "S10.1",
+        "file": "packages/excalidraw/actions/colorTargets.ts",
+        "line": 120,
+        "name": "editing",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: editingText && getColorTargetElement(...) — && yields the right operand",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S10.2",
+        "file": "packages/excalidraw/actions/colorTargets.ts",
+        "line": 109,
+        "name": "element",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 2: supports(editing)",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S10.3",
+        "file": "packages/element/src/comparisons.ts",
+        "line": 3,
+        "name": "type",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: hasBackground(getColorTargetElement(...).type) (shapeActionPredicates.ts:75) — holds a part of the value; also hop 3 via supports",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S10.4",
+        "file": "packages/element/src/comparisons.ts",
+        "line": 19,
+        "name": "type",
+        "kind": "param",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 3: supports(editing) -> hasStrokeColor(element.type) — a part of the value",
+        "mechanism": "plain"
+      },
+      {
+        "cid": "S10.5",
+        "file": "packages/excalidraw/actions/actionProperties.tsx",
+        "line": 499,
+        "name": "editingTarget",
+        "kind": "variable",
+        "foundBy": [
+          "B",
+          "B-strict",
+          "A",
+          "C"
+        ],
+        "verdict": "true",
+        "sameAs": null,
+        "note": "hop 1: editingText && getColorTargetElement(...)",
+        "mechanism": "plain"
+      }
+    ]
+  }
+}

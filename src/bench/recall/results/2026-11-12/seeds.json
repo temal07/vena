@@ -1,0 +1,100 @@
+{
+  "repo": "excalidraw @ 701b901 (shallow clone; path was machine-local)",
+  "seed": 20261112,
+  "pools": {
+    "V": 81,
+    "R": 159
+  },
+  "seeds": [
+    {
+      "id": "S1",
+      "name": "BAR_GAP",
+      "file": "packages/excalidraw/charts/charts.constants.ts",
+      "line": 25,
+      "kind": "V",
+      "uses": 8,
+      "files": 3
+    },
+    {
+      "id": "S2",
+      "name": "roundArrowIcon",
+      "file": "packages/excalidraw/components/icons.tsx",
+      "line": 2421,
+      "kind": "V",
+      "uses": 4,
+      "files": 4
+    },
+    {
+      "id": "S3",
+      "name": "CANVAS_SEARCH_TAB",
+      "file": "packages/common/src/constants.ts",
+      "line": 538,
+      "kind": "V",
+      "uses": 7,
+      "files": 4
+    },
+    {
+      "id": "S4",
+      "name": "copyIcon",
+      "file": "packages/excalidraw/components/icons.tsx",
+      "line": 1896,
+      "kind": "V",
+      "uses": 5,
+      "files": 5
+    },
+    {
+      "id": "S5",
+      "name": "bucketFillIcon",
+      "file": "packages/excalidraw/components/icons.tsx",
+      "line": 632,
+      "kind": "V",
+      "uses": 9,
+      "files": 5
+    },
+    {
+      "id": "S6",
+      "name": "deconstructDiamondElement",
+      "file": "packages/element/src/utils.ts",
+      "line": 457,
+      "kind": "R",
+      "uses": 7,
+      "files": 5
+    },
+    {
+      "id": "S7",
+      "name": "shouldTestInside",
+      "file": "packages/element/src/collision.ts",
+      "line": 87,
+      "kind": "R",
+      "uses": 4,
+      "files": 3
+    },
+    {
+      "id": "S8",
+      "name": "cloneJSON",
+      "file": "packages/common/src/utils.ts",
+      "line": 948,
+      "kind": "R",
+      "uses": 9,
+      "files": 6
+    },
+    {
+      "id": "S9",
+      "name": "isExcalidrawElement",
+      "file": "packages/element/src/typeChecks.ts",
+      "line": 255,
+      "kind": "R",
+      "uses": 4,
+      "files": 4
+    },
+    {
+      "id": "S10",
+      "name": "getColorTargetElement",
+      "file": "packages/element/src/stickyNote.ts",
+      "line": 96,
+      "kind": "R",
+      "uses": 5,
+      "files": 3
+    }
+  ]
+}

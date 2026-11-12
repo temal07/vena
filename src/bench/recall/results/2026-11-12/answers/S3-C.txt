@@ -1,0 +1,31 @@
+I found 7 destinations of `CANVAS_SEARCH_TAB` within 3 hops. vena-trace reported only `isForceDocked`; I found the other 6 by hand.
+
+The constant is used in 4 non-test files: `DefaultSidebar.tsx`, `actionToggleSearchMenu.ts`, `HintViewer.tsx` and `excalidraw-app/data/LocalData.ts`.
+
+**`DefaultSidebar.tsx`**
+- Hop 1: `const isForceDocked = appState.openSidebar?.tab === CANVAS_SEARCH_TAB` (line 77).
+- Hop 2: `isForceDocked` goes into the `docked={...}` and `onDock={...}` JSX props of `<Sidebar>`, so it reaches the `props` parameter at `Sidebar.tsx:171`.
+- Hop 3: `Sidebar` passes `<SidebarInner {...props} />`, which reaches the destructured `docked` parameter at `Sidebar.tsx:54`.
+- Hop 1: `<Sidebar.TabTrigger tab={CANVAS_SEARCH_TAB}>` reaches the `tab` parameter of `SidebarTabTrigger`. From there it only goes to Radix (outside the repo).
+- Hop 1: `<Sidebar.Tab tab={CANVAS_SEARCH_TAB}>` reaches the `tab` parameter of `SidebarTab`. Again, it goes on only into Radix.
+
+**`actionToggleSearchMenu.ts`**
+- Hop 1: `perform` returns `{ appState: { ..., openSidebar: { name, tab: CANVAS_SEARCH_TAB } } }`, so "the return of `perform`" (line 25) is a destination.
+- Hop 2: `ActionManager` passes that result to `this.updater(action.perform(...))`, which reaches the arrow parameter `actionResult` at `actions/manager.tsx:67`. The `action.perform` call is dynamic dispatch, but `executeAction(actionToggleSearchMenu)` is called directly from `DefaultItems.tsx` and `CommandPalette.tsx`.
+
+**Judgement calls:**
+- **Comparisons count.** I included the `isForceDocked` boolean chain because the rules count the value "even when only part of the expression", and vena-trace counts `===` the same way. That boolean never holds `"search"` itself. If comparisons shouldn't count, drop `isForceDocked`, `Sidebar.tsx:171` and `Sidebar.tsx:54`.
+- **Stopped at the `withBatchedUpdates` wrapper.** I did not follow hop 3 from `manager.tsx:67` into `App.syncActionResult`'s `actionResult` parameter (`App.tsx:3134`). That path goes through the wrapper and is unproven. I also left out the `.then((actionResult) => ...)` parameter at `manager.tsx:69`, because a plain object result never takes the promise branch.
+- **No destinations.** `HintViewer.tsx:55`, `LocalData.ts:85` and `actionToggleSearchMenu.ts:32` use the value only in `if` conditions. `LocalData.ts` writes `_appState.openSidebar = null`, which is not the value.
+- **Out of scope.** The uses in `tests/search.test.tsx` are a test file and were excluded.
+
+```
+FINAL ANSWER
+packages/excalidraw/components/DefaultSidebar.tsx:77 isForceDocked variable
+packages/excalidraw/components/Sidebar/Sidebar.tsx:171 props param
+packages/excalidraw/components/Sidebar/Sidebar.tsx:54 docked param
+packages/excalidraw/components/Sidebar/SidebarTabTrigger.tsx:7 tab param
+packages/excalidraw/components/Sidebar/SidebarTab.tsx:6 tab param
+packages/excalidraw/actions/actionToggleSearchMenu.ts:25 perform return
+packages/excalidraw/actions/manager.tsx:67 actionResult param
+```

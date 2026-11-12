@@ -1,0 +1,12 @@
+`shouldTestInside` lands in exactly one destination: the `isClosed` parameter of `getFreedrawShape`. All three files that use it are listed below, and no test files reference it.
+
+**Call sites:**
+- **`packages/element/src/collision.ts:211`** (`hitElementItself`): `overrideShouldTestInside ? true : shouldTestInside(element)` only serves as the condition of an outer ternary. That ternary returns the result of `isPointInElement` / `isPointOnElementOutline`, so the returned value goes nowhere. Not a destination.
+- **`packages/element/src/shape.ts:1187`** (`getElementShape`): `return shouldTestInside(element) ? getClosedCurveShape(...) : getCurveShape(...)`. The value is only the ternary condition; what gets returned is the shape. Not a destination.
+- **`packages/element/src/shape.ts:1211`** (`getElementShape`): `getFreedrawShape(element, pointFrom(cx, cy), shouldTestInside(element))`. The value is passed as an argument, so the parameter `isClosed` (`packages/utils/src/shape.ts:268`) is hop 1.
+- **`packages/excalidraw/eraser/index.ts:228`**: `shouldTestInside(element) && isPointInElement(...)` sits in an `if` condition and is never stored. Not a destination.
+
+**Following hop 1:** inside `getFreedrawShape`, `isClosed` is only the condition of a ternary that picks between a polygon object and a polyline object. Neither object contains its value, so the trail stops at hop 1.
+
+FINAL ANSWER
+packages/utils/src/shape.ts:270 isClosed param

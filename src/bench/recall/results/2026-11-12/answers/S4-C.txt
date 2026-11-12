@@ -1,0 +1,28 @@
+I found 8 destinations within 3 hops of `copyIcon`. vena-trace found only the 4 on the `register()` path. I found the other 4 by searching every use of the name and reading the components the JSX props go into.
+
+**Path through `register` (`packages/excalidraw/actions/actionElementLink.ts:19`, `icon: copyIcon`):**
+- **Hop 1:** the object literal is passed to `register`, so its `action` parameter (`register.ts:9`) is a destination.
+- **Hop 2:** `actions = actions.concat(action)` puts the value in the module-level `actions` array (`register.ts:3`). vena marked this hop `~inferred` because `concat` is a library call; I checked it and the value does land in the array. `register` also does `return action`, so its return (`register.ts:5`) is a destination.
+- **Hop 3:** `actionCopyElementLink` gets that return value (`actionElementLink.ts:16`). The 3-hop limit stops the trace there.
+
+**JSX prop `icon={copyIcon}` into `FilledButton`:**
+- **Hop 1:** three call sites pass it: `ShareableLinkDialog.tsx:66`, `ImageExportDialog.tsx:348` and `excalidraw-app/share/ShareDialog.tsx:138`. All three land in the destructured `icon` parameter at `FilledButton.tsx:43`.
+- That component only renders `{icon}` inside a plain `<div>`, so the value goes no further.
+
+**JSX prop into `ElementCanvasButton` (`App.tsx:2567`):**
+- **Hop 1:** it lands in that component's `props` parameter (`MagicButton.tsx:7`).
+- **Hop 2:** `icon={props.icon}` passes it on to `IconButton`, which collects it in the rest parameter `...props` (`IconButton.tsx:69`).
+- `IconButton` then only renders `{props.icon}` in plain elements, so the trail ends there.
+
+No test files use `copyIcon`.
+
+```
+FINAL ANSWER
+packages/excalidraw/actions/register.ts:9 action param
+packages/excalidraw/actions/register.ts:3 actions variable
+packages/excalidraw/actions/register.ts:5 register return
+packages/excalidraw/actions/actionElementLink.ts:16 actionCopyElementLink variable
+packages/excalidraw/components/FilledButton.tsx:43 icon param
+packages/excalidraw/components/MagicButton.tsx:7 props param
+packages/excalidraw/components/IconButton.tsx:69 props param
+```
