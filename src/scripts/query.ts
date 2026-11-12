@@ -166,9 +166,18 @@ function sitesOf(edge: GraphEdge, role: "argOf" | "resultOf"): CallSites {
     return sites;
 }
 
-function atSites(edge: GraphEdge, role: "argOf" | "resultOf", sites: CallSites): boolean {
-    return edge.occurrences.some((o) => o[role] !== undefined && sites.has(`${o.file}:${o[role]}`));
+/** The edge with only the occurrences `keep` accepts, or undefined if none
+ *  do. One edge can gather several calls — `outer(inner(a))` and
+ *  `outer(inner(b))` share `inner -> p` — and each occurrence pairs one
+ *  inner call with one outer call. Matching one end of an edge has to carry
+ *  only the occurrences it matched, or the other end gets every call. */
+function narrowed(edge: GraphEdge, keep: (o: Occurrence) => boolean): GraphEdge | undefined {
+    const occurrences = edge.occurrences.filter(keep);
+    return occurrences.length > 0 ? { ...edge, occurrences } : undefined;
 }
+
+const atSite = (role: "argOf" | "resultOf", sites: CallSites) => (o: Occurrence) =>
+    o[role] !== undefined && sites.has(`${o.file}:${o[role]}`);
 
 /** Some use behind this edge is *not* an argument — a write inside the body
  *  such as `p = normalise(p)` — so it stays within whatever call we are in. */
@@ -355,19 +364,27 @@ export function traverse(
 
         // Direct flow: the same edge set read from whichever end we are walking.
         if (direction === "forward") {
-            let edges = index.outgoing.get(node.id) ?? [];
-            // Back out of a call: only the result of the call we went in through.
-            if (returnTo && returnTo !== "any") edges = edges.filter((edge) => atSites(edge, "resultOf", returnTo));
-            for (const edge of edges) follow(edge, context);
+            const edges = index.outgoing.get(node.id) ?? [];
+            for (const edge of edges) {
+                // Back out of a call: only the result of the call we went in
+                // through, and only the uses of that result — not the outer
+                // calls other results on the same edge were passed to.
+                const kept = returnTo && returnTo !== "any" ? narrowed(edge, atSite("resultOf", returnTo)) : edge;
+                if (kept) follow(kept, context);
+            }
         } else {
             const edges = index.incoming.get(node.id) ?? [];
             const inCall = node.kind === "param" ? innermostCallTo(context, index.ownerOf.get(node.id)) : undefined;
             if (inCall) {
                 // Writes inside the body stay in this call; arguments leave it,
                 // and only the ones at the call we came in through are real.
+                // Each path carries only its own occurrences, so a matched
+                // argument doesn't bring along the inner calls of the others.
                 for (const edge of edges) {
-                    if (hasNonArgument(edge)) follow(edge, context);
-                    if (atSites(edge, "argOf", inCall)) follow(edge, context.slice(0, -1));
+                    const body = narrowed(edge, (o) => o.argOf === undefined);
+                    if (body) follow(body, context);
+                    const argument = narrowed(edge, atSite("argOf", inCall));
+                    if (argument) follow(argument, context.slice(0, -1));
                 }
             } else {
                 for (const edge of edges) follow(edge, context);

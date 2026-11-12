@@ -320,6 +320,23 @@ Gap 21 (re-exports) is therefore the larger of the two and **neither is worth sh
 without the other**: on a monorepo, fixing aliases alone buys 2.5%, and fixing
 re-exports alone leaves the barrel unreachable.
 
+### Re-measured after gaps 21 + 22 — November 3 2026
+
+Fresh excalidraw clone (`dd2f8fc`). The "before" column is today's engine with only those two fixes switched off — no `paths`, one-hop export lookup — so nothing else that changed since August is in the comparison.
+
+| analysed directory | | linked / value specifiers | linked / in-project | edges | cross-file edges |
+| --- | --- | --- | --- | --- | --- |
+| repo root | before | 2,912 / 7,379 — **39.5%** | 79.6%* | 30,068 | 7,647 — 25.4% |
+| repo root | after | 6,165 / 7,379 — **83.5%** | **93.8%** | 39,356 (+31%) | 16,890 — **42.9%** |
+| `packages/` | before | 2,778 / 6,869 — 40.4% | 79.4%* | 29,081 | 7,530 |
+| `packages/` | after | 3,072 / 6,869 — **44.7%** | 87.8% | 29,403 | 7,852 |
+
+\*Inflated: with aliases off, the `@excalidraw/*` imports count as external rather than in-project.
+
+**From the root, linkage more than doubled and cross-file edges more than doubled** — hono-level linkage on a monorepo. **From `packages/`, almost nothing moved**, because excalidraw's `paths` live in the *root* tsconfig and vena only reads one in the directory it analyses. August measured `packages/`, so the like-for-like number is 40% → 45%. The fix only helps when vena runs at the repo root, which is now how `vena` runs by default. Filed as gap 24.
+
+What's left from the root is 236 `noFile` and 173 `noDeclaration` specifiers, not yet read by name.
+
 ---
 
 ## C. Three gaps, resized
@@ -456,3 +473,124 @@ from 44% toward hono's 80%, and Q2 goes from a grep win to a vena win.
   `bun --smol`; peak RSS without it will be higher.
 - Four repos is still small, and three of them are TypeScript application code. Nothing
   here exercises decorators, namespaces, or CommonJS-heavy source.
+
+---
+
+# Benchmark #3 — does an agent do better with vena? (November 3 2026)
+
+NOTES.md designed this as "Benchmark #2 — does an agent do *better*", before the scaling run above took that number. It is the claim that matters most: #1 and #2 show the graph *contains* the answers, not that an agent holding it does better than one with `grep` and `Read`.
+
+## Setup
+
+- **Tasks:** the twenty questions of #1, word for word, on a fresh Hono clone. Two short paths were expanded (`timeout/index.ts` → `middleware/timeout/index.ts`, `crypto.ts` → `utils/crypto.ts`) in both arms.
+- **Arm A:** a fresh general-purpose agent (Opus 5.5) with Read, Grep and Bash, plus a paragraph on searching well: find every call site, follow imports, read the functions, and the warning that a missing answer and a false one both count against it.
+- **Arm B:** the identical prompt plus one paragraph on `vena-trace`, run as a standalone copy of `query.ts` against a prebuilt graph in a separate directory. That way neither arm could reach this file's answer key in the vena repo.
+- **Controls:** same model, a fresh context per task, one run per question per arm (40 runs). Every answer ended in the same `FINAL ANSWER` format.
+- **Graded** against the ground truth above. **Cost** is the harness's own count of tokens, tool calls and wall time per run.
+
+## Correctness: a wash
+
+| | ✅ | ⚠️ | ❌ | wrong yes/no | false sources spotted |
+| --- | --- | --- | --- | --- | --- |
+| Arm A (grep + Read) | 18 | 1 | 1 | 0 | 0 |
+| Arm B (+ vena-trace) | 19 | 1 | 0 | 0 | 0 |
+
+- **The one difference is Q8, and it is disputed.** The key says `duration` reaches `timer` via `setTimeout(…, duration)`. Arm A answered "no": a timer id doesn't depend on the delay. That is a better reading of the code than the key, which was written to the engine's over-approximation. Arm B gave `timer` and called the hop inferred.
+- **Q19 is ⚠️ in both.** Both arms excluded `i`@32 as "only an index", which the key includes. Arm B dropped it *although the tool listed it*.
+- **All three negative controls held in both arms.** On Q17 both agents explicitly reasoned that `createHash` returns only to its own caller — the exact mistake gap 23 had to fix in the tool.
+
+Both arms routinely went further than the key, following callers across files. I spot-checked these extra entries rather than verifying every one, and found none false.
+
+## Cost: not lower
+
+| | Arm A | Arm B | B − A |
+| --- | --- | --- | --- |
+| tokens, mean | 38,405 | 41,048 | **+7%** (B higher in 18 of 20) |
+| tokens above the ~35k fixed baseline, mean | 3,289 | 5,932 | **1.8×** |
+| tool calls, mean | 4.8 | 4.2 | −13% (B lower in 8, higher in 6, tied in 6) |
+| wall time, mean | 27.0 s | 27.4 s | +2% |
+
+On the four multi-hop, cross-file questions (Q1, Q3, Q12, Q13) the picture barely changes: tool calls −23%, time −8%, tokens +12%. The biggest wins were Q9 (13 → 4 calls) and Q13 (8 → 4). In both, Arm A read its way across many files. On Q9 the tool returned *nothing* (gap 20) and Arm B traced the field by hand, but answered less deeply than Arm A.
+
+## Against the prediction
+
+NOTES recorded before running: *"Correctness will be close. The difference will show up in cost."* **The first half held; the second did not.** Arm B made slightly fewer tool calls, but each `vena-trace` call returns a lot of text, and the agents then checked it against the source anyway. Net working tokens went *up* by 80%, and time was flat. NOTES set the bar in advance: *if cost is also a wash, the honest conclusion is that the graph does not earn its place.* On these twenty questions it does not.
+
+## Why — read from the transcripts
+
+1. **The questions are too easy for an agent.** Arm A's median run was 4 tool calls and 21 s. A strong model on a 60-line function needs no graph, which #2's grep head-to-head already showed within a file. These twenty were written to test the engine, not to stress an agent.
+2. **Agents verify the tool.** Every Arm B run that used the tool cross-checked it against the source. They caught its real limits:
+   - the field-insensitive `root`@35 in Q6
+   - the inferred `err`/`context` in Q1
+   - `dispatch` "returning" `res` in Q10
+   - the `timingSafeEqual` path through a `hashFunction` variable that it missed in Q5
+   - the `hono-base.ts:244` call it missed in Q19
+
+   That is the right behaviour, but it means the tool adds reading rather than replacing it.
+3. **The output format misleads.** Two agents reported that the tracer's line numbers "don't match the source". They do match. The line printed is the *declaration* of the node, and the quoted code beside it is the *use* on a different line. Both agents read the line as the use's location.
+4. **One Arm B agent never ran the tool** (Q18), and still answered correctly.
+
+## Threats to validity
+
+- One run per cell. Twenty pairs is small, and the 1-question correctness gap is noise.
+- The same author wrote the questions, the tool and the grading. Q8 shows the key itself can be wrong.
+- Arm B's prompt is a paragraph longer and names data flow, which is a hint in itself.
+- Hono is small and flat. #2 showed the graph's value is in cross-file linkage on *larger, modular* repos, and nothing here tested that.
+
+## What would actually test the claim
+
+Questions an agent cannot answer cheaply by reading — long cross-file chains through barrels and aliases on excalidraw or vscode, where #2 found grep returning tens of candidates. And a compact output mode, so a trace costs fewer tokens than the reading it replaces.
+
+---
+
+# Benchmark #4 — the same question on a real monorepo (November 3 2026)
+
+#3 concluded its questions were too easy for an agent. This one asks harder ones on excalidraw (`dd2f8fc`, 704 files, tsconfig aliases and barrels — the shape #2 says vena is for).
+
+## Setup
+
+- **Question selection, without consulting vena.** I listed the 519 functions exported from `packages/{element,math,common}`, kept the 84 called 3–8 times from at least two app files, and sampled 8 with a fixed seed (20261103). I then wrote one multi-hop question per sampled function. Each one starts from a call site of that function and asks for a full trace: forward through the action manager, backward through four layers of chart helpers, five Stats call sites behind a callback prop, an eraser set through two returns into an App field. Two are negative controls.
+- **Ground truth** was derived by hand from the source and written to an answer key before any run.
+- **Same arms, prompts, model and grading as #3.** Arm B's graph was built from the repo root (39,356 edges). 16 runs; the first E5–E8 batch hit a rate limit with no answers and was rerun.
+
+## Correctness: a wash again
+
+| | correct | partial | wrong | 
+| --- | --- | --- | --- |
+| Arm A (grep + Read) | 7 / 7 | 0 | 0 |
+| Arm B (+ vena-trace) | 6 / 7 | 1 (E4) | 0 |
+
+**E2 is excluded: my key was wrong.** I keyed it "no" because the two values pass through separate calls of `syncMovedIndices`. *Both* arms independently answered "yes", through shared state: the duplication writes the elements into `Scene` (`replaceAllElements`, App.duplicate.ts:513), they land in `Scene.elements`, and a later group action reads them back through the ActionManager. I checked every hop in the source; the flow is real. A call/return-only notion of data flow — vena's, and the one I wrote the key in — misses it.
+
+Both arms routinely went *past* the key: through `useApp()` into React context, the `App.renderEnvironment` getter, `AppHost`, and the `<Excalidraw>` props. Those hops are real and none of them is in the graph.
+
+## Cost: identical
+
+| | Arm A | Arm B | B − A |
+| --- | --- | --- | --- |
+| tokens, mean | 43,515 | 43,522 | **+0%** |
+| tool calls, mean | 7.5 | 6.6 | −12% (B lower in 6 of 8) |
+| wall time, mean | 43.9 s | 46.1 s | +5% |
+
+The questions *were* harder: tool calls rose from Hono's 4.8 to 7.5, time from 27 s to 44 s. The gap between the arms did not open up.
+
+## Why — what the tool actually returned in arm B
+
+| | vena-trace's contribution |
+| --- | --- |
+| E1 | nothing: "no downstream hops" (the value goes through `this.app.actionManager.executeAction` and an action's `perform`) |
+| E2 | missed the real path (it runs through a `Scene` field) |
+| E3 | not used |
+| E4 | part of one caller; its `~inferred` hops were rejected by the agent |
+| E5 | the first four hops, correct, then stopped at `useApp()` |
+| E6 | "nothing matching": the question names a call line, and an address must be a declaration |
+| E7 | agreed: no |
+| E8 | the declaration only, no forward flow (it goes into `this.elementsToErase`) |
+
+On a real class-and-React codebase **the graph mostly does not contain the paths an agent is asked about.** The flows go through fields (`this.x`), getters, React context, callback props and action registries. That is gap 20 and its relatives, not a delivery problem. Where the graph had the answer (E5's parameter chain), the agent got it faster — then had to read on by hand past the point where the graph stopped.
+
+## What this changes
+
+#3 said "test on hard questions before investing in delivery". This is that test, and it says the order is: **object-field flow (gap 20) first.** Without it, on code shaped like excalidraw's app layer, vena answers a minority of real questions, and a model reading the source answers all of them at the same cost.
+
+Threats: 8 questions, one run each; the same author picked the question template, wrote the key and graded — and the key was wrong once, in vena's favour of a narrower definition of flow.
